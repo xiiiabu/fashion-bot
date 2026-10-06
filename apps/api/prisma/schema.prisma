@@ -1,0 +1,2466 @@
+// Telegram Fashion Marketplace — data model
+// Spec §14.1 (key entities), CAT-005 (money as integer minor units),
+// PAY-008 (append-only ledger), ADM-006 (audit), SEL-001 (tenant isolation).
+//
+// Conventions:
+//  - every money column is BigInt, in minor units, with a sibling currency
+//  - every timestamp is stored UTC (§14.3); the UI renders Asia/Tashkent
+//  - external ids are unique per seller so re-import upserts (CAT-001)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────── enums
+
+enum Locale {
+  ru
+  uz
+  en
+}
+
+enum ProductLifecycle {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  ARCHIVED
+  REJECTED
+}
+
+enum OutfitSlot {
+  HEADWEAR
+  OUTERWEAR
+  TOP
+  MID_LAYER
+  BOTTOM
+  FULL_BODY
+  FOOTWEAR
+  BAG
+  ACCESSORY
+}
+
+enum Gender {
+  WOMEN
+  MEN
+  UNISEX
+  KIDS
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+enum MediaRole {
+  MAIN
+  FRONT
+  BACK
+  DETAIL
+  MODEL
+  FLATLAY
+  VIDEO
+  SIZE_CHART
+  EVIDENCE
+}
+
+enum StockMovementKind {
+  MANUAL_ADJUST
+  IMPORT
+  API_FEED
+  RESERVATION
+  RELEASE
+  ALLOCATION
+  RETURN_RESTOCK
+  WRITE_OFF
+  CANCELLATION
+}
+
+enum ReservationStatus {
+  HELD
+  ALLOCATED
+  RELEASED
+  EXPIRED
+}
+
+enum OrderStatus {
+  DRAFT
+  QUOTED
+  AWAITING_PAYMENT
+  PAID
+  CONFIRMED
+  PICKING
+  READY_FOR_HANDOVER
+  IN_TRANSIT
+  DELIVERED
+  PAYMENT_FAILED
+  CANCELLED
+  PARTIALLY_CANCELLED
+  RETURN_REQUESTED
+  RETURN_IN_TRANSIT
+  RETURNED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+  DISPUTED
+  COMPLETED
+}
+
+enum SubOrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  REJECTED
+  PICKING
+  READY_FOR_HANDOVER
+  HANDED_OVER
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+  PARTIALLY_CANCELLED
+  RETURN_IN_PROGRESS
+  RETURNED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  CANCELLED
+  EXPIRED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CHARGEBACK
+  RECONCILIATION_HOLD
+}
+
+enum ShipmentStatus {
+  PENDING
+  LABEL_CREATED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED_ATTEMPT
+  RETURNED_TO_SELLER
+  CANCELLED
+}
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  HANDED_OVER
+  RECEIVED
+  INSPECTED
+  REFUND_PENDING
+  REFUNDED
+  CANCELLED
+  DISPUTED
+}
+
+enum LedgerEvent {
+  SALE_GROSS
+  PLATFORM_COMMISSION
+  SELLER_PAYABLE
+  DISCOUNT_SELLER
+  DISCOUNT_PLATFORM
+  PSP_FEE
+  REFUND_GROSS
+  COMMISSION_REVERSAL
+  SELLER_PAYABLE_REVERSAL
+  PAYOUT
+  ADJUSTMENT
+}
+
+enum LedgerAccountKind {
+  PLATFORM_REVENUE
+  SELLER_PAYABLE
+  PSP_CLEARING
+  BUYER_SETTLEMENT
+  PLATFORM_PROMO_EXPENSE
+  PLATFORM_CASH
+}
+
+enum PayoutBatchStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  SETTLED
+  REJECTED
+  FAILED
+}
+
+enum DeliveryMethodKind {
+  COURIER
+  PICKUP_POINT
+  STORE_PICKUP
+  EXPRESS_COURIER
+}
+
+enum SettlementMode {
+  NATIVE_SPLIT
+  PLATFORM_SETTLEMENT
+}
+
+enum DiscountFunding {
+  SELLER
+  PLATFORM
+  SHARED
+}
+
+enum ConsentScope {
+  TERMS
+  PRIVACY
+  PERSONALIZATION
+  FIT_PROFILE
+  MARKETING
+  PHOTO_ANALYSIS
+  ANALYTICS
+}
+
+enum PrivacyRequestKind {
+  ACCESS
+  CORRECTION
+  DELETION
+  ANONYMIZATION
+  CONSENT_WITHDRAWAL
+  PROCESSING_INFO
+}
+
+enum PrivacyRequestStatus {
+  RECEIVED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+enum SupportTicketStatus {
+  OPEN
+  WAITING_CUSTOMER
+  WAITING_SELLER
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum NotificationChannel {
+  TELEGRAM
+  PUSH
+  EMAIL
+  SMS
+}
+
+enum NotificationKind {
+  SERVICE
+  MARKETING
+  BACK_IN_STOCK
+  PRICE_DROP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+  SUPPRESSED
+  READ
+}
+
+enum CmsBlockKind {
+  HERO
+  BANNER
+  PRODUCT_RAIL
+  BRAND_RAIL
+  CATEGORY_GRID
+  LOOK_RAIL
+  EDITORIAL
+  AI_PROMPT
+  SALE_RAIL
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FitFeedbackValue {
+  RUNS_SMALL
+  TRUE_TO_SIZE
+  RUNS_LARGE
+}
+
+enum SellerOnboardingStatus {
+  LEAD
+  KYB_PENDING
+  CONTRACT_PENDING
+  ACTIVE
+  SUSPENDED
+  OFFBOARDED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  CATALOG_MANAGER
+  ORDER_MANAGER
+  FINANCE_OPERATOR
+  CONTENT_MANAGER
+  AI_MERCHANDISER
+  SUPPORT_AGENT
+  ANALYST
+}
+
+enum SellerRole {
+  SELLER_OWNER
+  SELLER_CATALOG
+  SELLER_ORDER
+  SELLER_FINANCE
+  SELLER_VIEWER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum ReconciliationStatus {
+  MATCHED
+  UNMATCHED_PROVIDER
+  UNMATCHED_INTERNAL
+  AMOUNT_MISMATCH
+  RESOLVED
+}
+
+// ───────────────────────────────────────────────────── identity domain
+
+model User {
+  id                String   @id @default(uuid())
+  locale            Locale   @default(ru)
+  phone             String?
+  phoneVerifiedAt   DateTime?
+  firstName         String?
+  lastName          String?
+  /// Mirrors Telegram's username. TG-005: never used as identity.
+  displayUsername   String?
+  photoUrl          String?
+  /// USR-006: when off, no personalised ranking, AI memory or fit profile use.
+  personalizationEnabled Boolean @default(true)
+  isBlocked         Boolean  @default(false)
+  blockedReason     String?
+  deletedAt         DateTime?
+  anonymizedAt      DateTime?
+  lastSeenAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  telegramIdentity  TelegramIdentity?
+  sessions          Session[]
+  addresses         Address[]
+  consents          Consent[]
+  privacyRequests   PrivacyRequest[]
+  styleProfile      StyleProfile?
+  fitProfile        FitProfile?
+  carts             Cart[]
+  orders            Order[]
+  wishlistItems     WishlistItem[]
+  recommendationEvents RecommendationEvent[]
+  fitFeedback       FitFeedback[]
+  reviews           Review[]
+  supportTickets    SupportTicket[]
+  notifications     Notification[]
+  returnRequests    ReturnRequest[]
+  stockSubscriptions StockSubscription[]
+  outfitSessions    OutfitSession[]
+
+  @@index([phone])
+  @@index([createdAt])
+}
+
+model TelegramIdentity {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  telegramId    BigInt   @unique
+  username      String?
+  languageCode  String?
+  isPremium     Boolean  @default(false)
+  allowsWriteToPm Boolean @default(false)
+  /// Last verified auth_date, so a replayed older payload is visible.
+  lastAuthDate  DateTime
+  chatId        BigInt?
+  botBlocked    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([telegramId])
+}
+
+/// TG-003: our own short-lived session, not the Telegram payload.
+model Session {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String  @unique
+  /// Rotation chain: each refresh issues a new row pointing at its parent.
+  parentId        String?
+  userAgent       String?
+  ipHash          String?
+  platform        String?
+  issuedAt        DateTime @default(now())
+  expiresAt       DateTime
+  lastUsedAt      DateTime @default(now())
+  revokedAt       DateTime?
+  revokedReason   String?
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model Address {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label         String   @default("")
+  recipientName String
+  phone         String
+  city          String
+  district      String?
+  street        String
+  building      String
+  apartment     String?
+  entrance      String?
+  floor         String?
+  landmark      String?
+  postalCode    String?
+  /// USR-005: geo point only with consent.
+  lat           Float?
+  lng           Float?
+  geoConsentAt  DateTime?
+  isDefault     Boolean  @default(false)
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  orders        Order[]
+
+  @@index([userId, deletedAt])
+}
+
+/// USR-002 / §15.2: scope, version, language, timestamp and source are stored.
+model Consent {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope       ConsentScope
+  granted     Boolean
+  documentVersion String
+  locale      Locale
+  source      String
+  ipHash      String?
+  grantedAt   DateTime     @default(now())
+  revokedAt   DateTime?
+
+  @@index([userId, scope, grantedAt])
+}
+
+model PrivacyRequest {
+  id          String               @id @default(uuid())
+  userId      String
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        PrivacyRequestKind
+  status      PrivacyRequestStatus @default(RECEIVED)
+  details     String?
+  handledByAdminId String?
+  resolution  String?
+  dueAt       DateTime?
+  createdAt   DateTime             @default(now())
+  completedAt DateTime?
+
+  @@index([status, createdAt])
+}
+
+model LegalDocument {
+  id        String   @id @default(uuid())
+  kind      String
+  version   String
+  locale    Locale
+  title     String
+  body      String
+  publishedAt DateTime?
+  effectiveFrom DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([kind, version, locale])
+  @@index([kind, effectiveFrom])
+}
+
+// ───────────────────────────────────────────── personalisation domain
+
+model StyleProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  styles          String[] @default([])
+  colors          String[] @default([])
+  dislikedColors  String[] @default([])
+  favouriteBrandIds String[] @default([])
+  budgetPerItemMinor BigInt?
+  currency        String   @default("UZS")
+  preferredFit    String?
+  /// { "brandId": "M" } — sizes the shopper says they wear.
+  sizes           Json     @default("{}")
+  occasions       String[] @default([])
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// USR-004 / FIT-002: voluntary, field-by-field deletable, purpose is stated.
+model FitProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  heightMm      Int?
+  weightGrams   Int?
+  /// All lengths in millimetres: { "chest": 980, "waist": 820 }
+  measurements  Json     @default("{}")
+  preferredFit  String?
+  /// { "brandId": "M" }
+  usualSizes    Json     @default("{}")
+  /// FIT-002: the single switch that turns personalised fit off.
+  consentPersonalizedFit Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// AI-009: every recommendation is reproducible for audit.
+model RecommendationEvent {
+  id            String   @id @default(uuid())
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId     String?
+  kind          String
+  /// The stored structured intent (AI-001).
+  intent        Json
+  /// SKU ids actually offered, in order.
+  resultSkuIds  String[] @default([])
+  outfitId      String?
+  engineVersion String
+  rulesVersion  String
+  llmModel      String?
+  llmPromptHash String?
+  score         Float?
+  latencyMs     Int?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([kind, createdAt])
+}
+
+/// FIT-005: post-delivery feedback tied to the SKU.
+model FitFeedback {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skuId         String
+  sku           Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  orderItemId   String?
+  overall       FitFeedbackValue
+  length        FitFeedbackValue?
+  width         FitFeedbackValue?
+  comfort       Int?
+  comment       String?
+  verifiedPurchase Boolean @default(false)
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, skuId, orderItemId])
+  @@index([skuId])
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  skuId     String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId, skuId])
+  @@index([userId, createdAt])
+}
+
+/// NTF-003: back-in-stock and price-drop subscriptions.
+model StockSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skuId     String
+  sku       Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  wantsBackInStock Boolean @default(true)
+  wantsPriceDrop   Boolean @default(false)
+  priceThresholdMinor BigInt?
+  notifiedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, skuId])
+  @@index([skuId, notifiedAt])
+}
+
+// ───────────────────────────────────────────── organisation domain
+
+model Seller {
+  id              String   @id @default(uuid())
+  slug            String   @unique
+  legalName       String
+  displayName     String
+  /// KYB fields (Appendix C step 1).
+  taxId           String?
+  registrationNumber String?
+  legalAddress    String?
+  signatoryName   String?
+  contactEmail    String?
+  contactPhone    String?
+  onboardingStatus SellerOnboardingStatus @default(LEAD)
+  verified        Boolean  @default(false)
+  settlementMode  SettlementMode @default(PLATFORM_SETTLEMENT)
+  /// FUL-002: seller handling time, feeding the delivery estimate.
+  handlingDays    Int      @default(1)
+  cutoffLocalTime String   @default("15:00")
+  /// SEL-010: quality score from transparent operational metrics.
+  qualityScore    Float?
+  /// PAY-012: payouts can be held while returns are open.
+  payoutHoldMinor BigInt   @default(0)
+  payoutScheduleDays Int   @default(7)
+  returnReserveBps Int     @default(0)
+  currency        String   @default("UZS")
+  logoUrl         String?
+  description     String?
+  suspendedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  brands          Brand[]
+  users           SellerUser[]
+  contracts       Contract[]
+  commissionRules CommissionRule[]
+  payoutAccounts  PayoutAccount[]
+  products        Product[]
+  subOrders       SubOrder[]
+  orderItems      OrderItem[]
+  ledgerEntries   LedgerEntry[]
+  payoutBatches   PayoutBatch[]
+  deliveryMethods SellerDeliveryMethod[]
+  returnPolicies  ReturnPolicy[]
+  inventoryFeeds  InventoryFeed[]
+  adjustments     Adjustment[]
+
+  @@index([onboardingStatus])
+}
+
+model SellerUser {
+  id          String     @id @default(uuid())
+  sellerId    String
+  seller      Seller     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  email       String
+  name        String
+  passwordHash String
+  role        SellerRole @default(SELLER_VIEWER)
+  /// ADM-002 / SEC-008: TOTP secret for roles that require MFA.
+  mfaSecret   String?
+  mfaEnabledAt DateTime?
+  lastLoginAt DateTime?
+  failedLoginCount Int   @default(0)
+  lockedUntil DateTime?
+  disabledAt  DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([email])
+  @@index([sellerId, role])
+}
+
+model Brand {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  sellerId    String?
+  seller      Seller?  @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  logoUrl     String?
+  coverUrl    String?
+  description String?
+  country     String?
+  /// Appendix C step 3: documented permission to use the logo and media.
+  contentRightsConfirmedAt DateTime?
+  verified    Boolean  @default(false)
+  featured    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    Product[]
+  sizeCharts  SizeChart[]
+
+  @@index([verified, featured])
+}
+
+model Contract {
+  id            String   @id @default(uuid())
+  sellerId      String
+  seller        Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  number        String
+  version       Int      @default(1)
+  signedAt      DateTime?
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  /// D-03/D-05 decisions, recorded per contract.
+  commissionBaseNote String?
+  pspFeeBearer  String   @default("PLATFORM")
+  payoutScheduleNote String?
+  documentUrl   String?
+  createdAt     DateTime @default(now())
+
+  @@unique([sellerId, number, version])
+}
+
+/// PAY-007: versioned, with overrides by seller, category and period.
+model CommissionRule {
+  id            String   @id @default(uuid())
+  code          String
+  version       Int      @default(1)
+  sellerId      String?
+  seller        Seller?  @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  rateBps       Int      @default(1000)
+  includesDelivery Boolean @default(false)
+  sellerDiscountReducesBase Boolean @default(true)
+  platformDiscountReducesBase Boolean @default(false)
+  rounding      String   @default("HALF_UP")
+  minFeeMinor   BigInt?
+  maxFeeMinor   BigInt?
+  effectiveFrom DateTime @default(now())
+  effectiveTo   DateTime?
+  isDefault     Boolean  @default(false)
+  note          String?
+  createdByAdminId String?
+  createdAt     DateTime @default(now())
+
+  orderItems    OrderItem[]
+  ledgerEntries LedgerEntry[]
+
+  @@unique([code, version])
+  @@index([sellerId, effectiveFrom])
+  @@index([isDefault])
+}
+
+model PayoutAccount {
+  id          String   @id @default(uuid())
+  sellerId    String
+  seller      Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  bankName    String
+  accountName String
+  /// Stored masked; the full value lives in the secrets vault in production.
+  accountNumberMasked String
+  mfo         String?
+  inn         String?
+  currency    String   @default("UZS")
+  isDefault   Boolean  @default(false)
+  verifiedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  payoutBatches PayoutBatch[]
+
+  @@index([sellerId])
+}
+
+// ─────────────────────────────────────────────── catalogue domain
+
+model Category {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  nameRu      String
+  nameUz      String
+  nameEn      String?
+  parentId    String?
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryTree")
+  slot        OutfitSlot?
+  gender      Gender?
+  imageUrl    String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  /// CAT-002: required attributes for this category.
+  attributeSchemaId String?
+  attributeSchema   AttributeSchema? @relation(fields: [attributeSchemaId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    Product[]
+  sizeCharts  SizeChart[]
+  commissionRules CommissionRule[]
+
+  @@index([parentId, sortOrder])
+}
+
+/// CAT-002: an incomplete product stays in DRAFT.
+model AttributeSchema {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  /// [{ key, type, required, options, unit, localized }]
+  fields      Json
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categories  Category[]
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  slug          String   @unique
+  /// CAT-001: external id from the seller's own system, stable across imports.
+  externalId    String?
+  sellerId      String
+  seller        Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  brandId       String
+  brand         Brand    @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  titleRu       String
+  titleUz       String
+  titleEn       String?
+  descriptionRu String   @default("")
+  descriptionUz String   @default("")
+  descriptionEn String?
+
+  gender        Gender   @default(UNISEX)
+  /// §5.1 content block
+  compositionRu String   @default("")
+  compositionUz String   @default("")
+  careRu        String   @default("")
+  careUz        String   @default("")
+  countryOfOrigin String?
+  materials     String[] @default([])
+
+  colorName     String
+  colorFamily   String
+  colorHex      String?
+
+  /// §5.1 AI metadata
+  styleTags     String[] @default([])
+  occasions     String[] @default([])
+  season        String   @default("ALL_SEASON")
+  silhouette    String?
+  formality     Int      @default(3)
+  warmth        Int      @default(3)
+  fitNotes      String?
+  /// AI-004 hard constraints declared on the product.
+  incompatibleSlots  String[] @default([])
+  incompatibleStyles String[] @default([])
+
+  sizeChartId   String?
+  sizeChart     SizeChart? @relation(fields: [sizeChartId], references: [id], onDelete: SetNull)
+
+  /// CAT-009 lifecycle + versioning
+  lifecycle     ProductLifecycle @default(DRAFT)
+  version       Int      @default(1)
+  publishedAt   DateTime?
+  archivedAt    DateTime?
+  reviewNote    String?
+  submittedByAdminId String?
+  reviewedByAdminId  String?
+
+  /// CAT-010: return and delivery rules always resolve to a seller policy.
+  returnPolicyId String?
+  returnPolicy   ReturnPolicy? @relation(fields: [returnPolicyId], references: [id], onDelete: SetNull)
+  authenticityNote String?
+
+  /// BUY-002: pre-expanded transliteration blob for search.
+  searchDocument String  @default("")
+  popularityScore Float  @default(0)
+  viewCount      Int     @default(0)
+  purchaseCount  Int     @default(0)
+
+  attributes    Json     @default("{}")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  skus          Sku[]
+  media         Media[]
+  wishlistItems WishlistItem[]
+  reviews       Review[]
+  collectionItems CollectionItem[]
+  outfitItems   CuratedOutfitItem[]
+  versions      ProductVersion[]
+
+  @@unique([sellerId, externalId])
+  @@index([lifecycle, publishedAt])
+  @@index([categoryId, lifecycle])
+  @@index([brandId, lifecycle])
+  @@index([sellerId, lifecycle])
+  @@index([popularityScore])
+}
+
+/// CAT-009: versioning, so a published snapshot is auditable.
+model ProductVersion {
+  id         String   @id @default(uuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  version    Int
+  snapshot   Json
+  changedByAdminId String?
+  changeNote String?
+  createdAt  DateTime @default(now())
+
+  @@unique([productId, version])
+}
+
+model Sku {
+  id            String   @id @default(uuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// CAT-001: the seller's own SKU code, unique within the seller.
+  sellerSku     String?
+  barcode       String?
+  sizeLabel     String
+  sizeOrder     Int      @default(0)
+  /// Empty rather than NULL: Postgres treats NULLs as distinct, so a nullable
+  /// column in the unique index below would not actually prevent duplicates.
+  colorName     String   @default("")
+
+  /// CAT-005 / CAT-006
+  priceMinor      BigInt
+  compareAtMinor  BigInt?
+  currency        String  @default("UZS")
+  /// §5.1 product measurements, millimetres: { "chest": 1040 }
+  measurements    Json    @default("{}")
+  weightGrams     Int?
+  isActive        Boolean @default(true)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  inventory     Inventory?
+  prices        PriceHistory[]
+  promotions    PromotionSku[]
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  reservations  Reservation[]
+  stockMovements StockMovement[]
+  fitFeedback   FitFeedback[]
+  subscriptions StockSubscription[]
+  outfitItems   CuratedOutfitItem[]
+
+  @@unique([productId, sizeLabel, colorName])
+  @@index([productId, isActive])
+  @@index([barcode])
+}
+
+/// CAT-003: charts by brand / category / model, letter and numeric systems.
+model SizeChart {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  brandId     String?
+  brand       Brand?   @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  system      String   @default("letter")
+  gender      Gender?
+  /// [{ sizeLabel, order, body: {...}, garment: {...} }] — millimetres
+  rows        Json
+  noteRu      String?
+  noteUz      String?
+  noteEn      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    Product[]
+
+  @@index([brandId, categoryId])
+}
+
+/// CAT-004: media standard; critical issues block publishing.
+model Media {
+  id          String    @id @default(uuid())
+  productId   String?
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  kind        MediaKind @default(IMAGE)
+  role        MediaRole @default(MAIN)
+  url         String
+  altRu       String    @default("")
+  altUz       String    @default("")
+  altEn       String?
+  width       Int?
+  height      Int?
+  bytes       Int?
+  /// Dominant colour for a tinted placeholder while the image loads.
+  placeholder String?
+  sortOrder   Int       @default(0)
+  /// CAT-004: rights confirmation before publish.
+  rightsConfirmedAt DateTime?
+  qualityIssues String[] @default([])
+  createdAt   DateTime  @default(now())
+
+  @@index([productId, role, sortOrder])
+}
+
+model Collection {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  titleRu     String
+  titleUz     String
+  titleEn     String?
+  subtitleRu  String?
+  subtitleUz  String?
+  descriptionRu String?
+  descriptionUz String?
+  coverUrl    String?
+  /// CNT-002: scheduled publishing.
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       CollectionItem[]
+
+  @@index([isActive, startsAt, endsAt])
+}
+
+model CollectionItem {
+  id           String     @id @default(uuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sortOrder    Int        @default(0)
+
+  @@unique([collectionId, productId])
+}
+
+/// AI-010: editor-curated looks used as ground truth and as a prior.
+model CuratedOutfit {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  titleRu     String
+  titleUz     String
+  titleEn     String?
+  descriptionRu String?
+  descriptionUz String?
+  coverUrl    String?
+  styleTags   String[] @default([])
+  occasions   String[] @default([])
+  season      String?
+  /// AI-010: sponsored or curated placement is marked in the UI.
+  isSponsored Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdByAdminId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       CuratedOutfitItem[]
+
+  @@index([isActive, sortOrder])
+}
+
+model CuratedOutfitItem {
+  id        String        @id @default(uuid())
+  outfitId  String
+  outfit    CuratedOutfit @relation(fields: [outfitId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  skuId     String?
+  sku       Sku?          @relation(fields: [skuId], references: [id], onDelete: SetNull)
+  slot      OutfitSlot
+  sortOrder Int           @default(0)
+
+  @@unique([outfitId, productId])
+}
+
+/// AI-004: hard and soft rules editable by a merchandiser without a release.
+model CompatibilityRule {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  /// HARD blocks the combination; SOFT moves the score.
+  kind        String   @default("SOFT")
+  /// { slotA, slotB, styleA, styleB, colorA, colorB, maxFormalityGap, ... }
+  condition   Json
+  weight      Float    @default(0)
+  isActive    Boolean  @default(true)
+  note        String?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, kind])
+}
+
+/// AI-003: outfit slot templates, configurable without a release.
+model OutfitTemplate {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  titleRu     String
+  titleUz     String
+  titleEn     String?
+  /// [{ slot, required, budgetWeight }]
+  slots       Json
+  styleAffinity String[] @default([])
+  occasions   String[] @default([])
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────── commerce domain
+
+/// CAT-006: regular/sale price with period, source and funding party.
+model PriceHistory {
+  id            String   @id @default(uuid())
+  skuId         String
+  sku           Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  priceMinor    BigInt
+  compareAtMinor BigInt?
+  currency      String   @default("UZS")
+  source        String   @default("MANUAL")
+  changedByAdminId String?
+  changedBySellerUserId String?
+  validFrom     DateTime @default(now())
+  validTo       DateTime?
+
+  @@index([skuId, validFrom])
+}
+
+model Promotion {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  nameRu        String
+  nameUz        String
+  kind          String   @default("PERCENT")
+  valueBps      Int?
+  valueMinor    BigInt?
+  /// ORD-008 / PAY-015: who funds the discount is recorded separately.
+  funding       DiscountFunding @default(SELLER)
+  sellerSharePercent Int  @default(100)
+  minOrderMinor BigInt?
+  maxDiscountMinor BigInt?
+  startsAt      DateTime
+  endsAt        DateTime
+  usageLimit    Int?
+  usageCount    Int      @default(0)
+  perUserLimit  Int?
+  isActive      Boolean  @default(true)
+  requiresCode  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  skus          PromotionSku[]
+
+  @@index([isActive, startsAt, endsAt])
+}
+
+model PromotionSku {
+  id          String    @id @default(uuid())
+  promotionId String
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  skuId       String
+  sku         Sku       @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@unique([promotionId, skuId])
+}
+
+/// CAT-007: on-hand, reserved, available, safety stock.
+model Inventory {
+  id            String   @id @default(uuid())
+  skuId         String   @unique
+  sku           Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  onHand        Int      @default(0)
+  reserved      Int      @default(0)
+  safetyStock   Int      @default(0)
+  /// Generated so "available" can never drift from its inputs.
+  lowStockThreshold Int  @default(2)
+  backorderable Boolean  @default(false)
+  location      String?
+  updatedAt     DateTime @updatedAt
+  lastFeedAt    DateTime?
+
+  @@index([onHand])
+}
+
+/// CAT-007: every stock change is journalled.
+model StockMovement {
+  id          String   @id @default(uuid())
+  skuId       String
+  sku         Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  kind        StockMovementKind
+  quantity    Int
+  onHandAfter Int
+  reservedAfter Int
+  reason      String?
+  reservationId String?
+  orderItemId String?
+  actorType   String   @default("SYSTEM")
+  actorId     String?
+  correlationId String?
+  createdAt   DateTime @default(now())
+
+  @@index([skuId, createdAt])
+  @@index([createdAt])
+}
+
+/// CAT-008 / ORD-005: hold with TTL; paid -> allocation, timeout -> release.
+model Reservation {
+  id          String   @id @default(uuid())
+  skuId       String
+  sku         Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  cartId      String?
+  cart        Cart?    @relation(fields: [cartId], references: [id], onDelete: SetNull)
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  quantity    Int
+  status      ReservationStatus @default(HELD)
+  expiresAt   DateTime
+  releasedAt  DateTime?
+  allocatedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([status, expiresAt])
+  @@index([cartId])
+  @@index([orderId])
+}
+
+model Cart {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Anonymous carts before the first authenticated call.
+  anonymousKey String? @unique
+  currency  String   @default("UZS")
+  promotionCode String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     CartItem[]
+  quotes    Quote[]
+  reservations Reservation[]
+  orders    Order[]
+
+  @@index([userId, isActive])
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  skuId     String
+  sku       Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  /// AI-008 / ANL-005: attribution for AI-assembled looks.
+  addedFromAi Boolean @default(false)
+  outfitSessionId String?
+  fitConfidence Float?
+  /// The price shown when the item was added, so a change can be surfaced.
+  shownPriceMinor BigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, skuId])
+  @@index([cartId])
+}
+
+/// ORD-002: the server-side quote is the only source of the total.
+model Quote {
+  id          String   @id @default(uuid())
+  cartId      String
+  cart        Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  userId      String?
+  addressId   String?
+  /// Full snapshot: lines, per-seller delivery, discounts, fiscal mapping.
+  payload     Json
+  goodsTotalMinor    BigInt
+  discountTotalMinor BigInt  @default(0)
+  deliveryTotalMinor BigInt  @default(0)
+  grandTotalMinor    BigInt
+  currency    String   @default("UZS")
+  expiresAt   DateTime
+  reservationExpiresAt DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  orders      Order[]
+
+  @@index([cartId, createdAt])
+}
+
+// ───────────────────────────────────────────────── orders domain
+
+model Order {
+  id            String   @id @default(uuid())
+  number        String   @unique
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cartId        String?
+  cart          Cart?    @relation(fields: [cartId], references: [id], onDelete: SetNull)
+  quoteId       String?
+  quote         Quote?   @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  addressId     String?
+  address       Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+
+  status        OrderStatus @default(DRAFT)
+  /// ORD-004: address snapshot, immune to later edits of the address book.
+  addressSnapshot Json?
+  /// FUL-005: the return policy as shown before payment.
+  returnPolicySnapshot Json?
+
+  goodsTotalMinor    BigInt @default(0)
+  discountTotalMinor BigInt @default(0)
+  deliveryTotalMinor BigInt @default(0)
+  grandTotalMinor    BigInt @default(0)
+  refundedTotalMinor BigInt @default(0)
+  commissionTotalMinor BigInt @default(0)
+  currency      String   @default("UZS")
+
+  locale        Locale   @default(ru)
+  /// ORD-006: idempotency key for order creation.
+  idempotencyKey String? @unique
+  correlationId String?
+  placedAt      DateTime?
+  paidAt        DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  customerNote  String?
+  /// ANL-005: did the order originate from an AI look?
+  aiAttributed  Boolean  @default(false)
+  outfitSessionId String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subOrders     SubOrder[]
+  items         OrderItem[]
+  payments      Payment[]
+  statusHistory OrderStatusHistory[]
+  returnRequests ReturnRequest[]
+  ledgerEntries LedgerEntry[]
+  reservations  Reservation[]
+  fiscalReceipts FiscalReceipt[]
+  supportTickets SupportTicket[]
+  refunds       Refund[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([placedAt])
+}
+
+/// ORD-003: one SubOrder per seller / fulfilment node.
+model SubOrder {
+  id            String   @id @default(uuid())
+  number        String   @unique
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerId      String
+  seller        Seller   @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  status        SubOrderStatus @default(PENDING_CONFIRMATION)
+
+  goodsTotalMinor    BigInt @default(0)
+  discountTotalMinor BigInt @default(0)
+  deliveryTotalMinor BigInt @default(0)
+  commissionTotalMinor BigInt @default(0)
+  payableTotalMinor  BigInt @default(0)
+  currency      String   @default("UZS")
+
+  deliveryMethodCode String?
+  deliveryMethodName String?
+  estimatedMinDays   Int?
+  estimatedMaxDays   Int?
+  /// FUL-004: SLA clock for seller confirmation.
+  confirmDueAt  DateTime?
+  confirmedAt   DateTime?
+  rejectedAt    DateTime?
+  rejectReason  String?
+  handedOverAt  DateTime?
+  deliveredAt   DateTime?
+  sellerNote    String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items         OrderItem[]
+  shipments     Shipment[]
+  statusHistory OrderStatusHistory[]
+
+  @@index([sellerId, status])
+  @@index([orderId])
+  @@index([confirmDueAt])
+}
+
+/// ORD-004: immutable snapshot of the product, seller, price and terms.
+model OrderItem {
+  id            String   @id @default(uuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subOrderId    String
+  subOrder      SubOrder @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  sellerId      String
+  seller        Seller   @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  skuId         String
+  sku           Sku      @relation(fields: [skuId], references: [id], onDelete: Restrict)
+
+  /// Snapshot fields — never re-read from the catalogue.
+  productId     String
+  productTitle  String
+  brandName     String
+  sellerName    String
+  sizeLabel     String
+  colorName     String
+  imageUrl      String?
+  categorySlug  String
+
+  quantity      Int
+  unitPriceMinor BigInt
+  compareAtMinor BigInt?
+  lineTotalMinor BigInt
+  sellerDiscountMinor   BigInt @default(0)
+  platformDiscountMinor BigInt @default(0)
+  deliveryAllocatedMinor BigInt @default(0)
+  currency      String   @default("UZS")
+
+  /// PAY-006 / PAY-007: the rule applied and the amounts it produced.
+  commissionRuleId String?
+  commissionRule   CommissionRule? @relation(fields: [commissionRuleId], references: [id], onDelete: SetNull)
+  commissionRuleSnapshot Json?
+  commissionBaseMinor BigInt @default(0)
+  commissionMinor     BigInt @default(0)
+  sellerPayableMinor  BigInt @default(0)
+
+  cancelledQuantity Int    @default(0)
+  refundedQuantity  Int    @default(0)
+  refundedAmountMinor BigInt @default(0)
+  returnableUntil   DateTime?
+
+  addedFromAi   Boolean  @default(false)
+  fitConfidence Float?
+  fitRecommendedSize String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  returnItems   ReturnItem[]
+  ledgerEntries LedgerEntry[]
+  refundItems   RefundItem[]
+
+  @@index([orderId])
+  @@index([subOrderId])
+  @@index([sellerId, createdAt])
+  @@index([skuId])
+}
+
+/// ORD-011: every transition recorded with actor and reason.
+model OrderStatusHistory {
+  id          String   @id @default(uuid())
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subOrderId  String?
+  subOrder    SubOrder? @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  machine     String
+  fromStatus  String?
+  toStatus    String
+  actorType   String   @default("SYSTEM")
+  actorId     String?
+  note        String?
+  correlationId String?
+  createdAt   DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([subOrderId, createdAt])
+}
+
+model Shipment {
+  id            String   @id @default(uuid())
+  subOrderId    String
+  subOrder      SubOrder @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  status        ShipmentStatus @default(PENDING)
+  carrier       String?
+  trackingNumber String?
+  trackingUrl   String?
+  methodCode    String?
+  labelUrl      String?
+  pickedUpAt    DateTime?
+  deliveredAt   DateTime?
+  estimatedFrom DateTime?
+  estimatedTo   DateTime?
+  recipientName String?
+  failureReason String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  events        ShipmentEvent[]
+
+  @@index([subOrderId])
+  @@index([status])
+}
+
+model ShipmentEvent {
+  id          String   @id @default(uuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  status      ShipmentStatus
+  description String?
+  location    String?
+  occurredAt  DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([shipmentId, occurredAt])
+}
+
+// ─────────────────────────────────────────── fulfilment configuration
+
+model DeliveryZone {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  nameRu    String
+  nameUz    String
+  nameEn    String?
+  city      String
+  districts String[] @default([])
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  methods   SellerDeliveryMethod[]
+}
+
+/// FUL-001: methods configurable per seller and zone.
+model SellerDeliveryMethod {
+  id          String   @id @default(uuid())
+  sellerId    String
+  seller      Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  zoneId      String?
+  zone        DeliveryZone? @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  kind        DeliveryMethodKind @default(COURIER)
+  code        String
+  nameRu      String
+  nameUz      String
+  nameEn      String?
+  priceMinor  BigInt   @default(0)
+  freeOverMinor BigInt?
+  currency    String   @default("UZS")
+  /// FUL-002: carrier SLA in days, combined with seller handling time.
+  minDays     Int      @default(1)
+  maxDays     Int      @default(3)
+  isActive    Boolean  @default(true)
+  pickupAddress String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sellerId, code, zoneId])
+  @@index([sellerId, isActive])
+}
+
+/// FUL-005: the policy snapshot shown before payment and stored on the order.
+model ReturnPolicy {
+  id          String   @id @default(uuid())
+  sellerId    String?
+  seller      Seller?  @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  code        String   @unique
+  windowDays  Int      @default(14)
+  conditionsRu String
+  conditionsUz String
+  conditionsEn String?
+  whoPaysReturn String  @default("BUYER")
+  nonReturnableCategories String[] @default([])
+  nonReturnableReasons    String[] @default([])
+  isDefault   Boolean  @default(false)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    Product[]
+}
+
+/// SEL-007: scoped, rotatable credentials for a seller's stock feed.
+model InventoryFeed {
+  id          String   @id @default(uuid())
+  sellerId    String
+  seller      Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  name        String
+  tokenHash   String   @unique
+  tokenPrefix String
+  scopes      String[] @default([])
+  lastUsedAt  DateTime?
+  lastRunStatus String?
+  lastRunReport Json?
+  rotatedAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([sellerId])
+}
+
+// ──────────────────────────────────────────────── payments domain
+
+model Payment {
+  id            String   @id @default(uuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider      String
+  status        PaymentStatus @default(CREATED)
+  amountMinor   BigInt
+  capturedMinor BigInt   @default(0)
+  refundedMinor BigInt   @default(0)
+  currency      String   @default("UZS")
+  /// PAY-003: no PAN/CVV, ever. Only a provider token/reference.
+  providerPaymentId String?
+  providerReference String?
+  paymentUrl    String?
+  method        String?
+  cardMask      String?
+  /// ORD-006: idempotency for payment initiation.
+  idempotencyKey String? @unique
+  settlementMode SettlementMode @default(PLATFORM_SETTLEMENT)
+  pspFeeMinor   BigInt   @default(0)
+  pspFeeBearer  String   @default("PLATFORM")
+  failureCode   String?
+  failureMessage String?
+  expiresAt     DateTime?
+  authorizedAt  DateTime?
+  capturedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  transactions  Transaction[]
+  providerEvents ProviderEvent[]
+  refunds       Refund[]
+  reconciliationRecords ReconciliationRecord[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([orderId])
+  @@index([provider, status])
+  @@index([providerPaymentId])
+}
+
+model Transaction {
+  id            String   @id @default(uuid())
+  paymentId     String
+  payment       Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  kind          String
+  status        String
+  amountMinor   BigInt
+  currency      String   @default("UZS")
+  providerTransactionId String?
+  providerStatus String?
+  rawResponse   Json?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  @@index([paymentId, createdAt])
+  @@index([providerTransactionId])
+}
+
+/// PAY-004: callbacks are verified, deduplicated and replay-safe.
+model ProviderEvent {
+  id            String   @id @default(uuid())
+  provider      String
+  /// Provider-side event id; the unique constraint is what makes replay safe.
+  externalEventId String
+  paymentId     String?
+  payment       Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  eventType     String
+  signatureValid Boolean
+  payload       Json
+  headers       Json?
+  processedAt   DateTime?
+  processingError String?
+  duplicateOf   String?
+  receivedAt    DateTime @default(now())
+
+  @@unique([provider, externalEventId])
+  @@index([provider, receivedAt])
+  @@index([processedAt])
+}
+
+model Refund {
+  id            String   @id @default(uuid())
+  number        String   @unique
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentId     String
+  payment       Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  returnRequestId String?
+  returnRequest ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  amountMinor   BigInt
+  commissionReversalMinor BigInt @default(0)
+  currency      String   @default("UZS")
+  reason        String
+  status        String   @default("PENDING")
+  provider      String
+  providerRefundId String?
+  providerReference String?
+  /// ADM-005: large refunds need a second approval.
+  requiresApproval Boolean @default(false)
+  requestedByAdminId String?
+  approvedByAdminId  String?
+  approvedAt    DateTime?
+  processedAt   DateTime?
+  failureMessage String?
+  idempotencyKey String? @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items         RefundItem[]
+  ledgerEntries LedgerEntry[]
+  fiscalReceipts FiscalReceipt[]
+
+  @@index([orderId])
+  @@index([status, createdAt])
+}
+
+model RefundItem {
+  id          String   @id @default(uuid())
+  refundId    String
+  refund      Refund   @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  quantity    Int
+  grossMinor  BigInt
+  commissionReversalMinor BigInt
+  sellerPayableReversalMinor BigInt
+  currency    String   @default("UZS")
+
+  @@index([refundId])
+  @@index([orderItemId])
+}
+
+/// PAY-016: fiscal receipt/reference stored for sale and refund.
+model FiscalReceipt {
+  id          String   @id @default(uuid())
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  refundId    String?
+  refund      Refund?  @relation(fields: [refundId], references: [id], onDelete: SetNull)
+  kind        String   @default("SALE")
+  provider    String
+  fiscalId    String?
+  fiscalUrl   String?
+  sellerOfRecord String
+  amountMinor BigInt
+  currency    String   @default("UZS")
+  payload     Json?
+  issuedAt    DateTime @default(now())
+
+  @@index([orderId])
+  @@index([fiscalId])
+}
+
+/// PAY-011: daily reconciliation of internal records against provider reports.
+model ReconciliationRecord {
+  id            String   @id @default(uuid())
+  provider      String
+  periodDate    DateTime
+  paymentId     String?
+  payment       Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  providerReference String?
+  internalAmountMinor BigInt?
+  providerAmountMinor BigInt?
+  currency      String   @default("UZS")
+  status        ReconciliationStatus
+  /// PAY-011: every unmatched record has an owner and a workflow.
+  ownerAdminId  String?
+  resolution    String?
+  resolvedAt    DateTime?
+  resolvedByAdminId String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([provider, periodDate])
+  @@index([status, createdAt])
+}
+
+// ──────────────────────────────────────────────── finance domain
+
+model LedgerAccount {
+  id        String   @id @default(uuid())
+  kind      LedgerAccountKind
+  sellerId  String?
+  currency  String   @default("UZS")
+  /// Cached balance; the authority is always the sum of entries (PAY-008).
+  balanceMinor BigInt @default(0)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  entries   LedgerEntry[]
+
+  @@unique([kind, sellerId, currency])
+}
+
+/// PAY-008: append-only. No updates, no deletes, ever.
+model LedgerEntry {
+  id            String   @id @default(uuid())
+  /// Monotonic sequence for deterministic replay and control totals.
+  sequence      BigInt   @default(autoincrement())
+  accountId     String
+  account       LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  event         LedgerEvent
+  /// Positive magnitude; the sign comes from the event type.
+  amountMinor   BigInt
+  signedAmountMinor BigInt
+  currency      String   @default("UZS")
+
+  sellerId      String?
+  seller        Seller?  @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  orderId       String?
+  order         Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderItemId   String?
+  orderItem     OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  paymentId     String?
+  payment       Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  refundId      String?
+  refund        Refund?  @relation(fields: [refundId], references: [id], onDelete: SetNull)
+  payoutBatchId String?
+  payoutBatch   PayoutBatch? @relation(fields: [payoutBatchId], references: [id], onDelete: SetNull)
+  adjustmentId  String?
+  adjustment    Adjustment? @relation(fields: [adjustmentId], references: [id], onDelete: SetNull)
+  commissionRuleId String?
+  commissionRule   CommissionRule? @relation(fields: [commissionRuleId], references: [id], onDelete: SetNull)
+
+  memo          String?
+  correlationId String?
+  /// Guards against double-posting the same economic event.
+  dedupeKey     String?  @unique
+  createdAt     DateTime @default(now())
+
+  @@index([sellerId, createdAt])
+  @@index([orderId])
+  @@index([event, createdAt])
+  @@index([sequence])
+}
+
+/// PAY-017: manual correction with reason, role, audit and approval.
+model Adjustment {
+  id            String   @id @default(uuid())
+  number        String   @unique
+  sellerId      String
+  seller        Seller   @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  amountMinor   BigInt
+  currency      String   @default("UZS")
+  reason        String
+  category      String   @default("OTHER")
+  orderId       String?
+  status        ApprovalStatus @default(PENDING)
+  requestedByAdminId String
+  approvedByAdminId  String?
+  approvedAt    DateTime?
+  rejectedReason String?
+  createdAt     DateTime @default(now())
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([sellerId, status])
+}
+
+/// PAY-012: batch per seller / currency / period with hold and reserve.
+model PayoutBatch {
+  id            String   @id @default(uuid())
+  number        String   @unique
+  sellerId      String
+  seller        Seller   @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  payoutAccountId String?
+  payoutAccount PayoutAccount? @relation(fields: [payoutAccountId], references: [id], onDelete: SetNull)
+  periodFrom    DateTime
+  periodTo      DateTime
+  grossMinor    BigInt   @default(0)
+  commissionMinor BigInt @default(0)
+  refundsMinor  BigInt   @default(0)
+  adjustmentsMinor BigInt @default(0)
+  holdMinor     BigInt   @default(0)
+  reserveMinor  BigInt   @default(0)
+  netMinor      BigInt   @default(0)
+  currency      String   @default("UZS")
+  status        PayoutBatchStatus @default(DRAFT)
+  /// ADM-005: maker/checker — the maker may not approve their own batch.
+  createdByAdminId String?
+  approvedByAdminId String?
+  approvedAt    DateTime?
+  rejectedReason String?
+  sentAt        DateTime?
+  settledAt     DateTime?
+  paymentReference String?
+  exportUrl     String?
+  controlTotalHash String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ledgerEntries LedgerEntry[]
+  lines         PayoutLine[]
+
+  @@index([sellerId, status])
+  @@index([periodFrom, periodTo])
+}
+
+model PayoutLine {
+  id          String   @id @default(uuid())
+  batchId     String
+  batch       PayoutBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  orderItemId String?
+  orderId     String?
+  kind        String
+  amountMinor BigInt
+  currency    String   @default("UZS")
+  memo        String?
+
+  @@index([batchId])
+}
+
+// ─────────────────────────────────────────────── operations domain
+
+model ReturnRequest {
+  id            String   @id @default(uuid())
+  number        String   @unique
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subOrderId    String?
+  status        ReturnStatus @default(REQUESTED)
+  reason        String
+  comment       String?
+  refundTotalMinor BigInt @default(0)
+  currency      String   @default("UZS")
+  /// FUL-005: the policy as it stood when the order was placed.
+  policySnapshot Json?
+  dropOffInstructions String?
+  approvedAt    DateTime?
+  rejectedReason String?
+  handedOverAt  DateTime?
+  receivedAt    DateTime?
+  refundedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items         ReturnItem[]
+  inspections   Inspection[]
+  refunds       Refund[]
+  statusHistory ReturnStatusHistory[]
+  evidence      ReturnEvidence[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([orderId])
+}
+
+model ReturnItem {
+  id          String   @id @default(uuid())
+  returnRequestId String
+  returnRequest ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  quantity    Int
+  reason      String
+  refundAmountMinor BigInt @default(0)
+  currency    String   @default("UZS")
+  inspectionResult String?
+  restocked   Boolean  @default(false)
+
+  @@index([returnRequestId])
+  @@index([orderItemId])
+}
+
+model Inspection {
+  id          String   @id @default(uuid())
+  returnRequestId String
+  returnRequest ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  inspectedBySellerUserId String?
+  inspectedByAdminId String?
+  outcome     String
+  classification String?
+  note        String?
+  restockDecision String?
+  createdAt   DateTime @default(now())
+
+  @@index([returnRequestId])
+}
+
+/// FUL-008: evidence files with retention and access control.
+model ReturnEvidence {
+  id          String   @id @default(uuid())
+  returnRequestId String
+  returnRequest ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  url         String
+  kind        MediaKind @default(IMAGE)
+  bytes       Int?
+  uploadedByUserId String?
+  /// SEC-007: result of the upload scan.
+  scanStatus  String   @default("PENDING")
+  /// FUL-008: files are deleted on this date by the retention job.
+  retentionUntil DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([returnRequestId])
+  @@index([retentionUntil])
+}
+
+model ReturnStatusHistory {
+  id          String   @id @default(uuid())
+  returnRequestId String
+  returnRequest ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  fromStatus  String?
+  toStatus    String
+  actorType   String   @default("SYSTEM")
+  actorId     String?
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([returnRequestId, createdAt])
+}
+
+/// FUL-009: a ticket links user, order, item, payment and return.
+model SupportTicket {
+  id          String   @id @default(uuid())
+  number      String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderItemId String?
+  paymentId   String?
+  returnRequestId String?
+  subject     String
+  category    String   @default("OTHER")
+  status      SupportTicketStatus @default(OPEN)
+  priority    String   @default("NORMAL")
+  assignedAdminId String?
+  locale      Locale   @default(ru)
+  firstResponseAt DateTime?
+  resolvedAt  DateTime?
+  csatScore   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messages    SupportMessage[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model SupportMessage {
+  id          String   @id @default(uuid())
+  ticketId    String
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorType  String
+  authorId    String?
+  body        String
+  attachments Json?
+  isInternal  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     NotificationChannel @default(TELEGRAM)
+  kind        NotificationKind    @default(SERVICE)
+  templateKey String
+  payload     Json     @default("{}")
+  locale      Locale   @default(ru)
+  status      NotificationStatus  @default(QUEUED)
+  /// TG-004: deep link carried with the notification.
+  deepLink    String?
+  providerMessageId String?
+  error       String?
+  /// NTF-002: dedupe + frequency cap support.
+  dedupeKey   String?
+  sentAt      DateTime?
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([dedupeKey])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+/// ADM-006: actor, timestamp, before/after, reason, session/IP, correlation id.
+model AuditLog {
+  id            String   @id @default(uuid())
+  sequence      BigInt   @default(autoincrement())
+  actorType     String
+  actorId       String?
+  actorEmail    String?
+  action        String
+  objectType    String
+  objectId      String?
+  before        Json?
+  after         Json?
+  reason        String?
+  sessionId     String?
+  ipHash        String?
+  userAgent     String?
+  correlationId String?
+  severity      String   @default("INFO")
+  createdAt     DateTime @default(now())
+
+  @@index([objectType, objectId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+/// BUY-009: reviews with moderation and a verified-purchase mark.
+model Review {
+  id          String   @id @default(uuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderItemId String?
+  rating      Int
+  title       String?
+  body        String
+  fitVerdict  FitFeedbackValue?
+  status      ReviewStatus @default(PENDING)
+  verifiedPurchase Boolean @default(false)
+  moderatedByAdminId String?
+  moderationNote String?
+  helpfulCount Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, productId, orderItemId])
+  @@index([productId, status])
+}
+
+// ───────────────────────────────────────────────── admin / platform
+
+model AdminUser {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String
+  passwordHash String
+  roles       AdminRole[] @default([])
+  /// ADM-002: TOTP required for admin / finance / super admin.
+  mfaSecret   String?
+  mfaEnabledAt DateTime?
+  lastLoginAt DateTime?
+  failedLoginCount Int @default(0)
+  lockedUntil DateTime?
+  disabledAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sessions    AdminSession[]
+
+  @@index([email])
+}
+
+model AdminSession {
+  id          String   @id @default(uuid())
+  adminUserId String
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique
+  ipHash      String?
+  userAgent   String?
+  mfaVerified Boolean  @default(false)
+  expiresAt   DateTime
+  lastUsedAt  DateTime @default(now())
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([adminUserId, revokedAt])
+}
+
+/// ADM-005: the maker/checker record for every dual-approval action.
+model ApprovalRequest {
+  id          String   @id @default(uuid())
+  action      String
+  objectType  String
+  objectId    String
+  payload     Json
+  status      ApprovalStatus @default(PENDING)
+  makerAdminId String
+  makerEmail  String
+  checkerAdminId String?
+  checkerEmail String?
+  decidedAt   DateTime?
+  rejectReason String?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([objectType, objectId])
+}
+
+model CmsBlock {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  kind        CmsBlockKind
+  titleRu     String?
+  titleUz     String?
+  titleEn     String?
+  subtitleRu  String?
+  subtitleUz  String?
+  subtitleEn  String?
+  ctaLabelRu  String?
+  ctaLabelUz  String?
+  ctaLabelEn  String?
+  ctaHref     String?
+  imageUrl    String?
+  /// Block-specific config: { collectionSlug, brandIds, prompts, ... }
+  config      Json     @default("{}")
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  /// CNT-002: scheduling with locale/theme preview.
+  startsAt    DateTime?
+  endsAt      DateTime?
+  locales     String[] @default(["ru","uz"])
+  createdByAdminId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model ContentPage {
+  id          String   @id @default(uuid())
+  slug        String
+  locale      Locale
+  title       String
+  body        String
+  kind        String   @default("PAGE")
+  isPublished Boolean  @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([slug, locale])
+}
+
+/// ADM-010 / NFR-015: feature flags and staged rollout, no redeploy.
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  description String?
+  enabled     Boolean  @default(false)
+  /// 0-100 staged rollout.
+  rolloutPercent Int   @default(100)
+  /// Explicit allow list of user ids, for internal testing.
+  allowUserIds String[] @default([])
+  updatedByAdminId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Configuration a super admin can change without a redeploy (ADM-001/ADM-010).
+model PlatformSetting {
+  key         String   @id
+  value       Json
+  description String?
+  updatedByAdminId String?
+  updatedAt   DateTime @updatedAt
+}
+
+/// ADM-009: alerts with severity, owner and status.
+model Alert {
+  id          String   @id @default(uuid())
+  code        String
+  severity    String   @default("WARNING")
+  title       String
+  description String?
+  context     Json?
+  objectType  String?
+  objectId    String?
+  ownerAdminId String?
+  status      String   @default("OPEN")
+  acknowledgedAt DateTime?
+  resolvedAt  DateTime?
+  resolution  String?
+  createdAt   DateTime @default(now())
+
+  @@index([status, severity, createdAt])
+  @@index([code, createdAt])
+}
+
+/// ORD-006 / §14.3: idempotency keys for financially effective mutations.
+model IdempotencyRecord {
+  key         String   @id
+  scope       String
+  requestHash String
+  /// Stored response, replayed verbatim on a retry.
+  response    Json?
+  statusCode  Int?
+  status      String   @default("IN_PROGRESS")
+  userId      String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([scope, createdAt])
+}
+
+/// ANL-001: one event taxonomy with consent state and versioning.
+model AnalyticsEvent {
+  id          String   @id @default(uuid())
+  name        String
+  version     Int      @default(1)
+  /// ANL-004: pseudonymous id, never a phone or an address.
+  anonymousId String?
+  userRef     String?
+  sessionRef  String?
+  /// ANL-001: the consent state at the time of capture.
+  consentState Json?
+  properties  Json     @default("{}")
+  experiments Json?
+  source      String   @default("miniapp")
+  occurredAt  DateTime @default(now())
+
+  @@index([name, occurredAt])
+  @@index([userRef, occurredAt])
+}
+
+/// ANL-003: experiments with hypothesis, exposure, metrics and guardrails.
+model Experiment {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  hypothesis  String
+  variants    Json
+  metrics     Json
+  guardrails  Json?
+  stopCriteria String?
+  status      String   @default("DRAFT")
+  startedAt   DateTime?
+  stoppedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  exposures   ExperimentExposure[]
+}
+
+model ExperimentExposure {
+  id           String     @id @default(uuid())
+  experimentId String
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  userRef      String
+  variant      String
+  exposedAt    DateTime   @default(now())
+
+  @@unique([experimentId, userRef])
+}
+
+/// AI stylist session, so a look can be revisited and audited (AI-009).
+model OutfitSession {
+  id            String   @id @default(uuid())
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  rawQuery      String
+  locale        Locale   @default(ru)
+  intent        Json
+  templateKey   String?
+  /// Full assembled outfit snapshot, including per-item reasons.
+  result        Json?
+  totalMinor    BigInt?
+  currency      String   @default("UZS")
+  score         Float?
+  engineVersion String
+  rulesVersion  String
+  llmModel      String?
+  narrative     String?
+  latencyMs     Int?
+  replacements  Int      @default(0)
+  addedToCartAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+/// §18 evaluation: the offline AI test set and its results.
+model AiEvaluationCase {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  query       String
+  locale      Locale   @default(ru)
+  expectation Json
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  runs        AiEvaluationRun[]
+}
+
+model AiEvaluationRun {
+  id          String   @id @default(uuid())
+  caseId      String
+  case        AiEvaluationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  engineVersion String
+  passed      Boolean
+  score       Float?
+  details     Json?
+  reviewerAdminId String?
+  humanVerdict String?
+  createdAt   DateTime @default(now())
+
+  @@index([caseId, createdAt])
+}
+
+/// ADM-004: CSV/XLSX import with dry-run and an error report.
+model ImportJob {
+  id          String   @id @default(uuid())
+  kind        String
+  fileName    String
+  fileUrl     String?
+  dryRun      Boolean  @default(true)
+  status      String   @default("PENDING")
+  totalRows   Int      @default(0)
+  createdRows Int      @default(0)
+  updatedRows Int      @default(0)
+  failedRows  Int      @default(0)
+  report      Json?
+  sellerId    String?
+  createdByAdminId String?
+  createdBySellerUserId String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([status, createdAt])
+}
+
+/// NFR-012: large reports run async with checksums and an expiry.
+model ExportJob {
+  id          String   @id @default(uuid())
+  kind        String
+  params      Json     @default("{}")
+  status      String   @default("PENDING")
+  fileUrl     String?
+  rowCount    Int?
+  checksum    String?
+  controlTotals Json?
+  sellerId    String?
+  requestedByAdminId String?
+  requestedBySellerUserId String?
+  expiresAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([status, createdAt])
+}

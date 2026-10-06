@@ -1,0 +1,32 @@
+{
+  "name": "fashion-marketplace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram Mini App multi-brand fashion marketplace for Uzbekistan",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter @fashion/core build && pnpm -r --filter @fashion/api build && pnpm -r --filter @fashion/bot build",
+    "build:web": "pnpm --filter @fashion/miniapp build && pnpm --filter @fashion/admin build",
+    "dev": "node scripts/dev.mjs",
+    "db:generate": "pnpm --filter @fashion/api prisma:generate",
+    "db:push": "pnpm --filter @fashion/api prisma:push",
+    "db:migrate": "pnpm --filter @fashion/api prisma:migrate",
+    "db:seed": "pnpm --filter @fashion/api seed",
+    "db:reset": "pnpm --filter @fashion/api prisma:reset",
+    "test": "pnpm --filter @fashion/core test && pnpm --filter @fashion/api test",
+    "test:e2e": "pnpm --filter @fashion/api test:e2e",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "start:api": "pnpm --filter @fashion/api start:prod",
+    "start:bot": "pnpm --filter @fashion/bot start:prod"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,33 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+.turbo/
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# runtime
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.pnpm-store/
+storage/uploads/
+storage/exports/
+tmp/
+.DS_Store
+
+# generated
+apps/api/src/prisma/generated/
+packages/core/dist/
+# Product imagery is rendered deterministically by prisma/media-generator.ts
+# during the seed, so a fresh clone produces the same files.
+apps/api/storage/media/
+.api.pid
