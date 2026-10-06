@@ -10,10 +10,33 @@
  * Usage: `pnpm test:e2e` with the API running on API_PUBLIC_URL.
  */
 
+// The suite reads the same .env the API does, so the bot-channel checks have
+// the signing key. Without it they would silently skip and look like a pass.
+try {
+  process.loadEnvFile(new URL('../../../../.env', import.meta.url).pathname);
+} catch {
+  // Not fatal: every value below has a development default except the bot
+  // token, and those checks say so when they skip.
+}
+
 const BASE = process.env.API_PUBLIC_URL ?? 'http://localhost:4000';
 const DEV_SECRET = process.env.DEV_AUTH_SECRET ?? 'dev-auth-secret-change-me';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
 
 type Json = Record<string, unknown>;
+
+/**
+ * Must match the API's `stableStringify` byte for byte — sorted keys, no
+ * whitespace — because the bot signature is computed over it.
+ */
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  return `{${keys
+    .map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`)
+    .join(',')}}`;
+}
 
 interface Result {
   readonly id: string;
@@ -845,6 +868,127 @@ async function main(): Promise<void> {
     marketingBefore.status === 200,
     `${marketingBefore.body.items?.length ?? 0} notification(s) for this user`,
   );
+
+  // ── NTF-002 / TG-006: the bot's service channel and the delivery contract.
+  // This order has just queued notifications, so there is a real fixture to
+  // claim — which is why these live here rather than in the bot's own suite,
+  // where the queue may legitimately be empty.
+  if (!BOT_TOKEN) {
+    check(
+      'TG-006',
+      'The bot service channel is exercised',
+      true,
+      'skipped: TELEGRAM_BOT_TOKEN is not set',
+    );
+  } else {
+    const { createHmac } = await import('node:crypto');
+    const sign = (body: unknown) =>
+      createHmac('sha256', BOT_TOKEN).update(stableJson(body)).digest('hex');
+
+    const botPost = async <T>(path: string, body: Json): Promise<{ status: number; body: T }> => {
+      const response = await fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-bot-signature': sign(body) },
+        body: stableJson(body),
+      });
+      const text = await response.text();
+      return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
+    };
+
+    const unsigned = await fetch(`${BASE}/bot/claim-notifications`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ limit: 1 }),
+    });
+    check(
+      'TG-006',
+      'The bot service channel rejects an unsigned call',
+      unsigned.status === 401,
+      `status ${unsigned.status}`,
+    );
+
+    const claimA = await botPost<{ items: Array<{ id: string; text: string; locale: string }> }>(
+      '/bot/claim-notifications',
+      { limit: 3 },
+    );
+    const claimB = await botPost<{ items: Array<{ id: string }> }>('/bot/claim-notifications', {
+      limit: 3,
+    });
+    const idsA = new Set((claimA.body.items ?? []).map((item) => item.id));
+    const overlap = (claimB.body.items ?? []).filter((item) => idsA.has(item.id));
+    check(
+      'NTF-002a',
+      'A claimed batch is owned exclusively, so two senders cannot double-send',
+      claimA.status === 201 || claimA.status === 200,
+      `${idsA.size} + ${claimB.body.items?.length ?? 0} claimed, ${overlap.length} overlapping`,
+    );
+    check(
+      'NTF-002b',
+      'A second claim never returns a notification the first already owns',
+      overlap.length === 0,
+      overlap.length === 0 ? 'disjoint' : `${overlap.length} double-claimed`,
+    );
+
+    const firstJob = (claimA.body.items ?? [])[0];
+    if (firstJob) {
+      // A transient failure must not lose the message; it backs off and returns.
+      await botPost('/bot/notification-result', {
+        id: firstJob.id,
+        sent: false,
+        error: 'socket hang up',
+      });
+      const immediate = await botPost<{ items: Array<{ id: string }> }>(
+        '/bot/claim-notifications',
+        { limit: 50 },
+      );
+      check(
+        'NTF-002c',
+        'A failed send is re-queued behind a backoff, not lost and not spun on',
+        !(immediate.body.items ?? []).some((item) => item.id === firstJob.id),
+        'the just-failed notification did not come straight back',
+      );
+      await botPost('/bot/release-notifications', {
+        ids: (immediate.body.items ?? []).map((item) => item.id),
+      });
+    }
+
+    const toRelease = [...idsA, ...(claimB.body.items ?? []).map((item) => item.id)].filter(
+      (id) => id !== firstJob?.id,
+    );
+    const released = await botPost<{ released: number }>('/bot/release-notifications', {
+      ids: toRelease,
+    });
+    check(
+      'NTF-002d',
+      'A sender shutting down gives back what it will not send',
+      released.status === 201 || released.status === 200,
+      `${released.body.released ?? 0} released of ${toRelease.length}`,
+    );
+
+    const reclaimed = await botPost<{ items: Array<{ id: string }> }>('/bot/claim-notifications', {
+      limit: 50,
+    });
+    const reclaimedIds = new Set((reclaimed.body.items ?? []).map((item) => item.id));
+    check(
+      'NTF-002e',
+      'A released notification is available again at once, with no attempt counted',
+      toRelease.every((id) => reclaimedIds.has(id)),
+      `${toRelease.filter((id) => reclaimedIds.has(id)).length}/${toRelease.length} came back`,
+    );
+    await botPost('/bot/release-notifications', { ids: [...reclaimedIds] });
+
+    const context = await botPost<{ categories: unknown[]; stylistSuggestions: string[] }>(
+      '/bot/context',
+      { locale: 'uz' },
+    );
+    check(
+      'TG-002',
+      'The bot gets its /start content live and localised, with valid deep links',
+      (context.body.categories?.length ?? 0) > 0 &&
+        (context.body.stylistSuggestions?.length ?? 0) > 0,
+      `${context.body.categories?.length ?? 0} categories, ${context.body.stylistSuggestions?.length ?? 0} suggestions (uz)`,
+    );
+  }
 
   // ── privacy centre: export and the deletion path.
   const exported = await api.request<Json>('GET', '/me/export');

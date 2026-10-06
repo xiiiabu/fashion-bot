@@ -268,7 +268,11 @@ enum NotificationKind {
 
 enum NotificationStatus {
   QUEUED
+  /// Claimed by a sender and in flight. A row stuck here past its lease is
+  /// reclaimed, which is how a sender crashing mid-send recovers.
+  SENDING
   SENT
+  /// Terminal: every attempt was used up, or the failure is not retryable.
   FAILED
   SUPPRESSED
   READ
@@ -2091,6 +2095,13 @@ model Notification {
   error       String?
   /// NTF-002: dedupe + frequency cap support.
   dedupeKey   String?
+  /// NTF-002: how many sends have been attempted. A transient failure — a
+  /// network blip, a Telegram outage — must not lose an order update, so a
+  /// failed send is re-queued with a backoff until this reaches the cap.
+  attempts    Int      @default(0)
+  /// When this row becomes eligible to send again. Also the claim lease: a row
+  /// in SENDING past this time is considered abandoned and is reclaimed.
+  nextAttemptAt DateTime?
   sentAt      DateTime?
   readAt      DateTime?
   createdAt   DateTime @default(now())
@@ -2098,6 +2109,7 @@ model Notification {
   @@unique([dedupeKey])
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([status, nextAttemptAt])
 }
 
 /// ADM-006: actor, timestamp, before/after, reason, session/IP, correlation id.

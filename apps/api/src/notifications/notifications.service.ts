@@ -31,6 +31,26 @@ export interface QueueOptions {
   readonly params?: Record<string, string | number>;
 }
 
+/**
+ * How long a claimed batch is owned by one sender before another may reclaim
+ * it. Long enough to cover a slow Telegram and a rate-limit pause, short
+ * enough that a crashed sender does not strand a batch for long.
+ */
+const CLAIM_LEASE_MS = 120_000;
+
+/** NTF-002: attempts before a notification is given up on. */
+const MAX_SEND_ATTEMPTS = 5;
+
+/**
+ * Backoff between attempts: roughly 30s, 2m, 8m, 30m. A Telegram outage is
+ * usually over inside the first two, and a longer one does not turn into a
+ * tight retry loop.
+ */
+function backoffMs(attempt: number): number {
+  const base = 30_000 * 4 ** (attempt - 1);
+  return Math.min(base, 1_800_000);
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly config = loadConfig();
@@ -156,7 +176,19 @@ export class NotificationsService {
     return { allowed: true };
   }
 
-  /** The bot drains this. Returns rendered text so the sender stays dumb. */
+  /**
+   * NTF-002: hands the sender a batch and takes ownership of it.
+   *
+   * This used to only read QUEUED rows, which made the name a lie: two bot
+   * instances would both pick up the same notification and the shopper would
+   * get two copies of "your order shipped". The rows are now moved to SENDING
+   * under a lease in the same statement that selects them, so a second caller
+   * sees none of them.
+   *
+   * A row left in SENDING past its lease — the sender crashed mid-batch — is
+   * reclaimed by the next call, because a lost order update is worse than a
+   * rare duplicate.
+   */
   async claimQueued(limit = 25): Promise<
     Array<{
       id: string;
@@ -169,10 +201,33 @@ export class NotificationsService {
       kind: NotificationKind;
     }>
   > {
+    const now = new Date();
+    const leaseUntil = new Date(now.getTime() + CLAIM_LEASE_MS);
+
+    // One statement: pick the eligible ids and mark them SENDING. SKIP LOCKED
+    // means two senders racing take disjoint batches rather than blocking.
+    const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      UPDATE "Notification"
+      SET status = 'SENDING', "nextAttemptAt" = ${leaseUntil}
+      WHERE id IN (
+        SELECT id FROM "Notification"
+        WHERE channel = 'TELEGRAM'
+          AND (
+            (status = 'QUEUED' AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= ${now}))
+            OR (status = 'SENDING' AND "nextAttemptAt" <= ${now})
+          )
+        ORDER BY "createdAt" ASC
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id
+    `;
+
+    if (claimed.length === 0) return [];
+
     const rows = await this.prisma.notification.findMany({
-      where: { status: 'QUEUED', channel: 'TELEGRAM' },
+      where: { id: { in: claimed.map((row) => row.id) } },
       orderBy: { createdAt: 'asc' },
-      take: limit,
       include: { user: { include: { telegramIdentity: true } } },
     });
 
@@ -180,13 +235,14 @@ export class NotificationsService {
     for (const row of rows) {
       const identity = row.user.telegramIdentity;
       if (!identity) {
-        await this.markFailed(row.id, 'no_telegram_identity');
+        await this.markTerminal(row.id, 'no_telegram_identity');
         continue;
       }
       if (identity.botBlocked) {
+        // TG-005: suppressed, not failed. The shopper chose this.
         await this.prisma.notification.update({
           where: { id: row.id },
-          data: { status: 'SUPPRESSED', error: 'bot_blocked' },
+          data: { status: 'SUPPRESSED', error: 'bot_blocked', nextAttemptAt: null },
         });
         continue;
       }
@@ -216,14 +272,80 @@ export class NotificationsService {
   async markSent(id: string, providerMessageId?: string): Promise<void> {
     await this.prisma.notification.update({
       where: { id },
-      data: { status: 'SENT', sentAt: new Date(), providerMessageId: providerMessageId ?? null },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        providerMessageId: providerMessageId ?? null,
+        nextAttemptAt: null,
+        attempts: { increment: 1 },
+      },
     });
   }
 
-  async markFailed(id: string, error: string): Promise<void> {
+  /**
+   * NTF-002: a failed send is retried with a growing backoff, and only becomes
+   * terminal once the attempts are used up.
+   *
+   * It was terminal on the first failure, which meant a minute of Telegram
+   * being unreachable silently dropped every order update queued in it — the
+   * shopper simply never heard that their parcel shipped. `blocked` is the one
+   * failure that is terminal immediately: retrying it cannot succeed, and the
+   * shopper asked for it to stop.
+   */
+  async markFailed(id: string, error: string, options: { blocked?: boolean } = {}): Promise<void> {
+    if (options.blocked) {
+      await this.prisma.notification.update({
+        where: { id },
+        data: { status: 'SUPPRESSED', error: error.slice(0, 500), nextAttemptAt: null },
+      });
+      return;
+    }
+
+    const current = await this.prisma.notification.findUnique({
+      where: { id },
+      select: { attempts: true },
+    });
+    const attempts = (current?.attempts ?? 0) + 1;
+    const exhausted = attempts >= MAX_SEND_ATTEMPTS;
+
     await this.prisma.notification.update({
       where: { id },
-      data: { status: 'FAILED', error: error.slice(0, 500) },
+      data: {
+        status: exhausted ? 'FAILED' : 'QUEUED',
+        error: error.slice(0, 500),
+        attempts,
+        nextAttemptAt: exhausted ? null : new Date(Date.now() + backoffMs(attempts)),
+      },
+    });
+
+    if (exhausted) {
+      logger.error({ notificationId: id, attempts, error }, 'notification gave up after retries');
+    }
+  }
+
+  /**
+   * Hands a claimed notification back without counting an attempt.
+   *
+   * A sender that is shutting down, or that stopped early on a rate limit,
+   * still owns whatever it claimed. Without this those rows sit in SENDING
+   * until the lease expires — up to two minutes during which an order update
+   * goes nowhere, on every single deploy. Releasing costs nothing and makes a
+   * restart invisible to the shopper.
+   */
+  async release(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const result = await this.prisma.notification.updateMany({
+      where: { id: { in: ids }, status: 'SENDING' },
+      data: { status: 'QUEUED', nextAttemptAt: null },
+    });
+    return result.count;
+  }
+
+  /** A failure no retry can fix: there is no Telegram identity to send to. */
+  private async markTerminal(id: string, error: string): Promise<void> {
+    await this.prisma.notification.update({
+      where: { id },
+      data: { status: 'FAILED', error: error.slice(0, 500), nextAttemptAt: null },
     });
   }
 

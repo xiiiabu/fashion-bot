@@ -18,6 +18,10 @@
  * guarantee the CSV import has.
  */
 
+import { loadEnvFile } from '../src/common/env';
+
+loadEnvFile();
+
 import { join } from 'node:path';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { fromMajor, sizeSortKey, buildSearchDocument } from '@fashion/core';

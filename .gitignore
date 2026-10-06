@@ -36,3 +36,7 @@ apps/api/storage/media/
 
 # Next generates this
 apps/miniapp/next-env.d.ts
+
+# bot runtime
+.bot.pid
+.bot.log

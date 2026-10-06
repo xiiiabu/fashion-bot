@@ -8,6 +8,11 @@
  */
 
 import 'reflect-metadata';
+import { loadEnvFile } from './common/env';
+
+// Before any module reads process.env, including the Prisma client.
+loadEnvFile();
+
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import express from 'express';

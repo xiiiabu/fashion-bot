@@ -189,8 +189,29 @@ export class SupportController {
   ) {
     this.assertBotSignature(body, signature);
     if (body.sent) await this.notifications.markSent(body.id, body.providerMessageId);
-    else await this.notifications.markFailed(body.id, body.error ?? 'send failed');
+    // TG-005: a block is terminal and is suppressed; anything else is retried
+    // with a backoff until the attempts are used up (NTF-002).
+    else await this.notifications.markFailed(body.id, body.error ?? 'send failed', {
+      blocked: body.blocked === true,
+    });
     return { ok: true };
+  }
+
+  /**
+   * NTF-002: a sender gives back what it claimed but will not send — on
+   * shutdown, or after a rate limit cut a batch short. Without this the rows
+   * wait out their lease, which delays an order update on every deploy.
+   */
+  @Public()
+  @RateLimit({ max: 600 })
+  @Post('bot/release-notifications')
+  async botRelease(
+    @Body() body: { ids: string[] },
+    @Headers('x-bot-signature') signature: string,
+  ) {
+    this.assertBotSignature(body, signature);
+    const released = await this.notifications.release((body.ids ?? []).slice(0, 100));
+    return { released };
   }
 
   @Public()
