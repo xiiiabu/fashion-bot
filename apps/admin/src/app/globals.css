@@ -1,0 +1,309 @@
+@import 'tailwindcss';
+
+/*
+ * Operator design language — spec §10 and §11.
+ *
+ * This is not the shop. The Mini App is an editorial surface that sells; this
+ * is a working tool someone sits in front of for eight hours, reconciling
+ * money and moving orders. The priorities invert: density over whitespace,
+ * tabular numbers over display type, state that is readable at a glance over
+ * atmosphere.
+ *
+ * It keeps the shop's palette, because an operator opening a product should
+ * recognise the same product, and because the clay accent reads as "this is
+ * the thing you act on" in both.
+ */
+
+@theme {
+  --color-ink: #16130f;
+  --color-ink-soft: #3b342c;
+  --color-ink-muted: #6f655a;
+  --color-ink-faint: #9a9086;
+  --color-line: #e2dbd0;
+  --color-line-soft: #efeae1;
+  --color-bone: #f8f6f1;
+  --color-bone-deep: #f1ece3;
+  --color-paper: #ffffff;
+
+  --color-clay: #b05a35;
+  --color-clay-deep: #8f4526;
+  --color-clay-soft: #f7ece4;
+
+  --color-success: #2f6b4f;
+  --color-success-soft: #e7f1ea;
+  --color-warn: #8a6314;
+  --color-warn-soft: #fbf2dc;
+  --color-danger: #9a3131;
+  --color-danger-soft: #fbe9e9;
+  --color-info: #2e5d86;
+  --color-info-soft: #e8f0f7;
+
+  --font-display: 'Playfair Display', ui-serif, Georgia, serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Roboto Mono', monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 12px;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  --bg: var(--color-bone);
+  --bg-raised: var(--color-paper);
+  --bg-sunken: var(--color-bone-deep);
+  --fg: var(--color-ink);
+  --fg-soft: var(--color-ink-soft);
+  --fg-muted: var(--color-ink-muted);
+  --fg-faint: var(--color-ink-faint);
+  --line: var(--color-line);
+  --line-soft: var(--color-line-soft);
+  --accent: var(--color-clay);
+  --accent-deep: var(--color-clay-deep);
+  --accent-soft: var(--color-clay-soft);
+  --on-accent: #fffaf6;
+  --scrim: rgb(22 19 15 / 0.38);
+  --sidebar: #1b1714;
+  --sidebar-fg: #d6cec4;
+  --sidebar-fg-dim: #8a8078;
+  --sidebar-line: #2e2823;
+
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #141211;
+  --bg-raised: #1d1a18;
+  --bg-sunken: #0e0d0c;
+  --fg: #f2ede6;
+  --fg-soft: #cdc4b9;
+  --fg-muted: #9b9188;
+  --fg-faint: #6d655d;
+  --line: #322d28;
+  --line-soft: #262220;
+  --accent: #d9825a;
+  --accent-deep: #c06a44;
+  --accent-soft: #2b1e16;
+  --on-accent: #17110d;
+  --scrim: rgb(0 0 0 / 0.58);
+  --sidebar: #0e0d0c;
+  --sidebar-fg: #cdc4b9;
+  --sidebar-fg-dim: #7d746c;
+  --sidebar-line: #262220;
+
+  --color-success-soft: #16261d;
+  --color-success: #7cc49c;
+  --color-warn-soft: #2a2213;
+  --color-warn: #ddb865;
+  --color-danger-soft: #2b1818;
+  --color-danger: #e08a8a;
+  --color-info-soft: #15212c;
+  --color-info: #8fb8dc;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  letter-spacing: -0.004em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Every number an operator compares vertically — money, counts, ids, dates —
+ * is tabular. Proportional digits in a column of totals is the single fastest
+ * way to make a finance screen unreadable.
+ */
+.t-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.t-money {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-weight: 540;
+  letter-spacing: -0.01em;
+}
+
+.t-mono {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  letter-spacing: -0.01em;
+}
+
+.t-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.t-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.t-label {
+  font-size: 0.75rem;
+  font-weight: 550;
+  color: var(--fg-muted);
+}
+
+/* Tables are the primary instrument here, so they get real styling. */
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line);
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.data-table td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.data-table tbody tr:hover td {
+  background: var(--bg-sunken);
+}
+
+.data-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade {
+  animation: fade 0.18s var(--ease-out-soft) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.22s var(--ease-out-soft) both;
+}
+
+@keyframes sheen {
+  0% {
+    background-position: -140% 0;
+  }
+  100% {
+    background-position: 240% 0;
+  }
+}
+
+.skeleton {
+  background:
+    linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in oklab, var(--fg) 7%, transparent) 50%,
+        transparent 100%
+      )
+      var(--bg-sunken);
+  background-size: 220% 100%;
+  animation: sheen 1.2s var(--ease-out-soft) infinite;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade,
+  .rise,
+  .skeleton {
+    animation: none;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input[type='number'] {
+  appearance: textfield;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* A destructive action never looks like an ordinary one. */
+.danger-zone {
+  border: 1px solid color-mix(in oklab, var(--color-danger) 38%, transparent);
+  background: var(--color-danger-soft);
+}

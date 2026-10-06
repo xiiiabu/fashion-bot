@@ -16,6 +16,7 @@ import { PrismaService } from '../common/prisma.service';
 import { AppError } from '../common/errors';
 import { AuditService } from '../common/audit.service';
 import type { AuthenticatedActor } from '../common/http';
+import { toMoney } from '../common/money.util';
 
 export interface FaqEntry {
   readonly id: string;
@@ -356,8 +357,10 @@ export class SupportService {
       titleEn?: string | null;
       subtitleRu?: string | null;
       subtitleUz?: string | null;
+      subtitleEn?: string | null;
       ctaLabelRu?: string | null;
       ctaLabelUz?: string | null;
+      ctaLabelEn?: string | null;
       ctaHref?: string | null;
       imageUrl?: string | null;
       config?: Record<string, unknown>;
@@ -387,8 +390,13 @@ export class SupportService {
       titleEn: input.titleEn ?? null,
       subtitleRu: input.subtitleRu ?? null,
       subtitleUz: input.subtitleUz ?? null,
+      // The update below replaces the row wholesale, so every localised field
+      // has to be settable — otherwise saving a block from the panel silently
+      // wipes the locales the form did not send.
+      subtitleEn: input.subtitleEn ?? null,
       ctaLabelRu: input.ctaLabelRu ?? null,
       ctaLabelUz: input.ctaLabelUz ?? null,
+      ctaLabelEn: input.ctaLabelEn ?? null,
       ctaHref: input.ctaHref ?? null,
       imageUrl: input.imageUrl ?? null,
       config: (input.config ?? {}) as Prisma.InputJsonValue,
@@ -445,7 +453,15 @@ export class SupportService {
       kind: block.kind,
       isActive: block.isActive,
       title: pickLocalized({ ru: block.titleRu, uz: block.titleUz, en: block.titleEn }, locale),
-      subtitle: pickLocalized({ ru: block.subtitleRu, uz: block.subtitleUz }, locale),
+      subtitle: pickLocalized(
+        { ru: block.subtitleRu, uz: block.subtitleUz, en: block.subtitleEn },
+        locale,
+      ),
+      ctaLabel: pickLocalized(
+        { ru: block.ctaLabelRu, uz: block.ctaLabelUz, en: block.ctaLabelEn },
+        locale,
+      ),
+      ctaHref: block.ctaHref,
       scheduled: block.startsAt != null || block.endsAt != null,
       startsAt: block.startsAt?.toISOString() ?? null,
       endsAt: block.endsAt?.toISOString() ?? null,
@@ -724,25 +740,74 @@ export class SupportService {
     return { total, rows };
   }
 
-  /** ADM-005: the maker/checker queue. */
+  /**
+   * ADM-005: the maker/checker queue.
+   *
+   * Two things wait for a second approver and they are stored differently.
+   * Payout batches and refunds raise an ApprovalRequest; an adjustment carries
+   * its own PENDING status and requester instead. Both are listed here,
+   * because a queue that silently omits one class of pending money action is
+   * worse than no queue — the omitted ones are the ones that sit forever.
+   */
   async pendingApprovals(adminUserId?: string) {
-    const rows = await this.prisma.approvalRequest.findMany({
-      where: { status: 'PENDING' },
-      orderBy: { createdAt: 'asc' },
-      take: 100,
-    });
-    return rows.map((row) => ({
-      id: row.id,
-      action: row.action,
-      objectType: row.objectType,
-      objectId: row.objectId,
-      payload: row.payload,
-      makerEmail: row.makerEmail,
-      createdAt: row.createdAt.toISOString(),
-      expiresAt: row.expiresAt?.toISOString() ?? null,
-      // The UI greys out rows the viewer is not allowed to approve.
-      canApprove: adminUserId ? row.makerAdminId !== adminUserId : false,
-    }));
+    const [requests, adjustments] = await Promise.all([
+      this.prisma.approvalRequest.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+      }),
+      this.prisma.adjustment.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+        include: { seller: { select: { displayName: true } } },
+      }),
+    ]);
+
+    const makerIds = [...new Set(adjustments.map((row) => row.requestedByAdminId))];
+    const makers = makerIds.length
+      ? await this.prisma.adminUser.findMany({
+          where: { id: { in: makerIds } },
+          select: { id: true, email: true },
+        })
+      : [];
+    const emailById = new Map(makers.map((maker) => [maker.id, maker.email]));
+
+    const items = [
+      ...requests.map((row) => ({
+        id: row.id,
+        action: row.action,
+        objectType: row.objectType,
+        objectId: row.objectId,
+        payload: row.payload as unknown,
+        makerEmail: row.makerEmail,
+        createdAt: row.createdAt.toISOString(),
+        expiresAt: row.expiresAt?.toISOString() ?? null,
+        // The UI greys out rows the viewer is not allowed to approve.
+        canApprove: adminUserId ? row.makerAdminId !== adminUserId : false,
+      })),
+      ...adjustments.map((row) => ({
+        id: row.id,
+        action: 'adjustment.create',
+        objectType: 'Adjustment',
+        objectId: row.id,
+        payload: {
+          number: row.number,
+          seller: row.seller.displayName,
+          amount: toMoney(row.amountMinor, row.currency),
+          category: row.category,
+          reason: row.reason,
+          orderId: row.orderId,
+        } as unknown,
+        makerEmail: emailById.get(row.requestedByAdminId) ?? null,
+        createdAt: row.createdAt.toISOString(),
+        expiresAt: null,
+        canApprove: adminUserId ? row.requestedByAdminId !== adminUserId : false,
+      })),
+    ];
+
+    // Oldest first across both sources: the queue is worked from the top.
+    return items.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   }
 }
 

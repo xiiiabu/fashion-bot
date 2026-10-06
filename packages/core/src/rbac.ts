@@ -95,10 +95,20 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[] | ['*']> = {
     'analytics:read',
   ],
 
+  /**
+   * ADM-005 is dual control, not escalation: two finance operators check each
+   * other, so the role holds both the write and the approve permissions. One
+   * operator still cannot move money alone — the API refuses an approval from
+   * the person who created the request, whatever their role.
+   *
+   * Without the approve permissions here, the only possible checker would be a
+   * SUPER_ADMIN, which turns every refund into an escalation and in practice
+   * means the separation gets bypassed.
+   */
   FINANCE_OPERATOR: [
     'payment:read', 'payment:refund',
-    'ledger:read', 'adjustment:write',
-    'payout:read', 'payout:create',
+    'ledger:read', 'adjustment:write', 'adjustment:approve',
+    'payout:read', 'payout:create', 'payout:approve',
     'reconciliation:read', 'reconciliation:resolve',
     'export:financial',
     'order:read',

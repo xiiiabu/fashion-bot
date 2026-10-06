@@ -32,6 +32,7 @@ packages/core/dist/
 apps/api/storage/media/
 .api.pid
 .miniapp.pid
+.admin.pid
 .miniapp.log
 
 # Next generates this

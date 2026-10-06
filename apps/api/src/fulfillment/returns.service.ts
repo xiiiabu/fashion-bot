@@ -514,6 +514,9 @@ export class ReturnsService {
         refundTotal: toMoney(row.refundTotalMinor, row.currency),
         createdAt: row.createdAt.toISOString(),
         items: row.items.map((item) => ({
+          // RET-006 inspects per item, so the ReturnItem id has to travel with
+          // the row: without it an operator can read a return but not act on it.
+          id: item.id,
           orderItemId: item.orderItemId,
           title: item.orderItem.productTitle,
           brandName: item.orderItem.brandName,
