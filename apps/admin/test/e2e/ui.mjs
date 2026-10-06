@@ -537,10 +537,14 @@ try {
       await checkerButton.click();
       await finance2.page.waitForSelector('[role="dialog"]', { timeout: 8000 });
       const dialog = await finance2.page.locator('[role="dialog"]').innerText();
+      // The queue is worked oldest-first, so this is whichever adjustment has
+      // waited longest — not necessarily the one created above. What matters is
+      // that the dialog shows the payload of the row it opened, so an approval
+      // cannot be given without reading what is being approved.
       check(
         'the approval dialog shows the payload being approved',
-        dialog.includes('UI acceptance suite') || dialog.includes('25000') || dialog.includes('2500000'),
-        dialog.replace(/\n/g, ' ').slice(0, 90),
+        /"reason"/.test(dialog) && /"seller"/.test(dialog) && /"amount"/.test(dialog),
+        dialog.replace(/\s+/g, ' ').slice(0, 110),
       );
       // A money action requires typing the confirmation word.
       const confirmButton = finance2.page.locator('[role="dialog"] button:has-text("Согласовать")').last();
