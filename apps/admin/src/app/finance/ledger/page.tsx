@@ -19,8 +19,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { LEDGER_EVENTS } from '@fashion/core';
 import { errorMessage, useApp } from '@/lib/app-context';
-import { finance, type LedgerRow } from '@/lib/endpoints';
-import { dateTime, fromMinor, money, number, signedAmount } from '@/lib/format';
+import { finance, type LedgerRow, type LedgerVerification } from '@/lib/endpoints';
+import { amount, dateTime, fromMinor, number, signedAmount } from '@/lib/format';
 import {
   Button,
   Card,
@@ -36,6 +36,20 @@ import {
 import { FilterSelect, ListBody, ListFooter, SearchBox, useList } from '@/components/data-screen';
 
 const PAGE = 50;
+
+/**
+ * Clean means three things at once: nothing had drifted, nothing needed
+ * correcting, and the commission the orders claim matches what the ledger
+ * holds. Reporting only the first would call a real divergence a pass.
+ */
+function isClean(result: LedgerVerification): boolean {
+  return (
+    result.balances.drifts.length === 0 &&
+    result.balances.corrected === 0 &&
+    result.orders.ok &&
+    result.orders.deltaMinor === '0'
+  );
+}
 
 /**
  * The colour says what the entry does to the platform, not whether it is good
@@ -54,9 +68,7 @@ export default function LedgerPage() {
   const [event, setEvent] = useState('');
   const [query, setQuery] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const [verification, setVerification] = useState<Awaited<
-    ReturnType<typeof finance.verifyLedger>
-  > | null>(null);
+  const [verification, setVerification] = useState<LedgerVerification | null>(null);
 
   const list = useList<LedgerRow>(
     (offset) =>
@@ -77,10 +89,13 @@ export default function LedgerPage() {
     try {
       const result = await finance.verifyLedger();
       setVerification(result);
-      if (result.drift === '0' && result.corrected === 0) {
+      if (isClean(result)) {
         toast('Баланс сходится: расхождений нет', 'success');
       } else {
-        toast(`Расхождение: ${result.drift}, исправлено счетов: ${result.corrected}`, 'error');
+        toast(
+          `Расхождение: счетов исправлено ${result.balances.corrected}, по комиссии ${result.orders.deltaMinor}`,
+          'error',
+        );
       }
     } catch (caught) {
       toast(errorMessage(caught), 'error');
@@ -132,28 +147,47 @@ export default function LedgerPage() {
       {verification && (
         <div className="mb-4">
           <Note
-            tone={verification.drift === '0' && verification.corrected === 0 ? 'success' : 'danger'}
-            title={
-              verification.drift === '0' && verification.corrected === 0
-                ? 'Баланс сходится'
-                : 'Найдено расхождение'
-            }
+            tone={isClean(verification) ? 'success' : 'danger'}
+            title={isClean(verification) ? 'Баланс сходится' : 'Найдено расхождение'}
             action={
               <Button size="xs" variant="ghost" onClick={() => setVerification(null)}>
                 Скрыть
               </Button>
             }
           >
-            Проверено счетов: {number(verification.checked)}. Исправлено: {number(verification.corrected)}.
-            Расхождение: {verification.drift}.
-            {verification.issues.length > 0 && (
+            <p>
+              Счетов проверено: {number(verification.balances.checked)}, исправлено:{' '}
+              {number(verification.balances.corrected)}.
+            </p>
+            <p className="mt-1">
+              Комиссия по заказам{' '}
+              <span className="t-money">{amount(fromMinor(verification.orders.orderCommissionMinor))}</span>{' '}
+              против реестра{' '}
+              <span className="t-money">{amount(fromMinor(verification.orders.ledgerCommissionMinor))}</span>
+              {verification.orders.deltaMinor === '0' ? (
+                ' — сходится.'
+              ) : (
+                <>
+                  {' '}
+                  — расхождение{' '}
+                  <strong className="t-money">{amount(fromMinor(verification.orders.deltaMinor))}</strong>.
+                </>
+              )}
+            </p>
+            {verification.balances.drifts.length > 0 && (
               <ul className="mt-2 space-y-1">
-                {verification.issues.slice(0, 8).map((issue) => (
-                  <li key={issue.accountId} className="t-mono">
-                    {issue.accountId.slice(0, 8)}: кэш {issue.cached} ≠ реестр {issue.derived}
+                {verification.balances.drifts.slice(0, 8).map((drift) => (
+                  <li key={drift.accountId} className="t-mono text-[11.5px]">
+                    {drift.accountId.slice(0, 8)}: кэш {drift.cached} ≠ реестр {drift.computed}
                   </li>
                 ))}
               </ul>
+            )}
+            {!isClean(verification) && (
+              <p className="mt-2">
+                Кэш балансов исправлен по записям реестра — реестр остаётся источником истины.
+                Расхождение по комиссии так не исправляется: его нужно разобрать.
+              </p>
             )}
           </Note>
         </div>

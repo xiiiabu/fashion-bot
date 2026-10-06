@@ -373,6 +373,20 @@ export interface QualityScore {
   factors: QualityFactor[];
 }
 
+export interface LedgerVerification {
+  balances: {
+    checked: number;
+    corrected: number;
+    drifts: Array<{ accountId: string; cached: string; computed: string }>;
+  };
+  orders: {
+    ok: boolean;
+    orderCommissionMinor: string;
+    ledgerCommissionMinor: string;
+    deltaMinor: string;
+  };
+}
+
 export interface PlatformTotals {
   salesGross: Money;
   refunds: Money;
@@ -500,14 +514,16 @@ export const finance = {
   platformTotals: (from?: string, to?: string) =>
     request<PlatformTotals>('/admin/ledger/platform-totals', { query: { from, to } }),
 
-  /** PAY-008: rebuilds every balance from the entries and reports the drift. */
-  verifyLedger: () =>
-    request<{
-      checked: number;
-      corrected: number;
-      drift: string;
-      issues: Array<{ accountId: string; cached: string; derived: string }>;
-    }>('/admin/ledger/verify', { method: 'POST' }),
+  /**
+   * PAY-008: proves the money adds up, two ways at once.
+   *
+   * `balances` rebuilds every cached account balance from the entries and
+   * corrects any that had drifted. `orders` checks the commission the orders
+   * say was charged against the commission the ledger actually holds — the
+   * two can agree internally and still disagree with each other, which is the
+   * failure that matters.
+   */
+  verifyLedger: () => request<LedgerVerification>('/admin/ledger/verify', { method: 'POST' }),
 
   payoutsDue: () =>
     request<{ items: Array<{ sellerId: string; displayName: string; available: Money }> }>(
