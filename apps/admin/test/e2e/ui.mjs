@@ -154,7 +154,13 @@ async function newSession() {
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() !== 'error') return;
+    // The browser logs a console error for every 4xx response, and this suite
+    // provokes those on purpose to prove a refusal is a refusal. They are
+    // already counted by the `failed` collector below; what this one is for is
+    // a script that threw, so a failed fetch is not evidence of that.
+    if (/Failed to load resource/i.test(message.text())) return;
+    errors.push(message.text());
   });
   const failed = [];
   page.on('response', (response) => {
