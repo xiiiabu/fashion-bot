@@ -9,7 +9,13 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { ADMIN_ROLES, LOCALES, SELLER_ROLES, type Locale } from '@fashion/core';
-import { AdminAuthGuard, AdminSurface, Public, RequirePermissions } from '../identity/guards';
+import {
+  AdminAuthGuard,
+  AdminSurface,
+  Public,
+  RequireAnyPermission,
+  RequirePermissions,
+} from '../identity/guards';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminCatalogService } from './admin-catalog.service';
 import { AdminSellerService } from './admin-seller.service';
@@ -1153,7 +1159,12 @@ export class AdminController {
     return this.support.auditLog(query);
   }
 
-  @RequirePermissions('audit:read')
+  /**
+   * ADM-005. Guarded on any approval permission rather than audit:read: the
+   * people who work this queue are the finance operators who approve from it,
+   * and gating it on audit access hid their own queue from them.
+   */
+  @RequireAnyPermission('adjustment:approve', 'payout:approve', 'audit:read')
   @Get('approvals')
   async approvals(@Actor() actor: AuthenticatedActor) {
     return { items: await this.support.pendingApprovals(actor.adminUserId) };

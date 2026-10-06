@@ -30,6 +30,7 @@ import { AdminAuthService } from '../admin/admin-auth.service';
 export const PUBLIC_KEY = 'isPublic';
 export const OPTIONAL_AUTH_KEY = 'optionalAuth';
 export const PERMISSIONS_KEY = 'requiredPermissions';
+export const ANY_PERMISSION_KEY = 'requiredAnyPermission';
 export const REQUIRE_MFA_KEY = 'requireMfa';
 export const ADMIN_SURFACE_KEY = 'adminSurface';
 
@@ -52,6 +53,18 @@ export const OptionalAuth = () => SetMetadata(OPTIONAL_AUTH_KEY, true);
 
 export const RequirePermissions = (...permissions: Permission[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);
+
+/**
+ * Holding *any one* of these is enough.
+ *
+ * `RequirePermissions` is an AND, which is right almost everywhere: an endpoint
+ * that writes a product needs product:write, full stop. It is wrong for a
+ * screen several different roles legitimately read for different reasons — the
+ * maker/checker queue is read by the finance operators who work it and by the
+ * auditors who review it, and no single permission describes both.
+ */
+export const RequireAnyPermission = (...permissions: Permission[]) =>
+  SetMetadata(ANY_PERMISSION_KEY, permissions);
 
 export const RequireMfa = () => SetMetadata(REQUIRE_MFA_KEY, true);
 
@@ -188,6 +201,21 @@ export class AdminAuthGuard implements CanActivate {
       if (!hasPermission(actor.permissions as Set<Permission | '*'>, permission)) {
         throw AppError.forbidden('Missing permission', { required: permission, roles });
       }
+    }
+
+    const anyOf =
+      this.reflector.getAllAndOverride<Permission[]>(ANY_PERMISSION_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? [];
+
+    if (
+      anyOf.length > 0 &&
+      !anyOf.some((permission) =>
+        hasPermission(actor.permissions as Set<Permission | '*'>, permission),
+      )
+    ) {
+      throw AppError.forbidden('Missing permission', { requiredAnyOf: anyOf, roles });
     }
 
     return true;

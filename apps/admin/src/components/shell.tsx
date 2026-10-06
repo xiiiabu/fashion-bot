@@ -27,6 +27,8 @@ interface NavItem {
    * than quietly emptying the sidebar.
    */
   permission?: Permission;
+  /** Holding any one of these is enough, matching RequireAnyPermission. */
+  anyPermission?: Permission[];
   exact?: boolean;
 }
 
@@ -40,7 +42,11 @@ const ADMIN_NAV: NavGroup[] = [
     title: 'Обзор',
     items: [
       { href: '/', label: 'Дашборд', exact: true },
-      { href: '/approvals', label: 'Согласования', permission: 'audit:read' },
+      {
+        href: '/approvals',
+        label: 'Согласования',
+        anyPermission: ['adjustment:approve', 'payout:approve', 'audit:read'],
+      },
       { href: '/alerts', label: 'Алерты', permission: 'analytics:read' },
     ],
   },
@@ -129,7 +135,11 @@ export function Sidebar() {
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 no-scrollbar">
         {groups.map((group, groupIndex) => {
-          const visible = group.items.filter((item) => !item.permission || can(item.permission));
+          const visible = group.items.filter(
+            (item) =>
+              (!item.permission || can(item.permission)) &&
+              (!item.anyPermission || item.anyPermission.some((permission) => can(permission))),
+          );
           if (visible.length === 0) return null;
           return (
             <div key={`${group.title}-${groupIndex}`} className="mb-4">
