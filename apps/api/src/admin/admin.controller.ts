@@ -12,6 +12,7 @@ import { ADMIN_ROLES, LOCALES, SELLER_ROLES, type Locale } from '@fashion/core';
 import {
   AdminAuthGuard,
   AdminSurface,
+  PlatformOnly,
   Public,
   RequireAnyPermission,
   RequirePermissions,
@@ -110,6 +111,10 @@ const skuListSchema = z.object({
 
 @Controller('admin')
 @AdminSurface()
+// Tenant isolation (ADM-003): everything here is platform staff only. The four
+// routes the seller cabinet shares opt out individually with
+// @PlatformOnly(false) — see each one below.
+@PlatformOnly()
 @UseGuards(AdminAuthGuard)
 export class AdminController {
   constructor(
@@ -156,12 +161,14 @@ export class AdminController {
     });
   }
 
+  @PlatformOnly(false) // Both surfaces sign out here.
   @Post('auth/logout')
   async logout(@Actor() actor: AuthenticatedActor) {
     if (actor.sessionId) await this.adminAuth.logout(actor.sessionId);
     return { ok: true };
   }
 
+  @PlatformOnly(false) // Both surfaces read their own principal here.
   @Get('me')
   async me(@Actor() actor: AuthenticatedActor) {
     return {
@@ -175,6 +182,7 @@ export class AdminController {
     };
   }
 
+  @PlatformOnly(false) // A seller changes their own password here.
   @Post('auth/password')
   async changePassword(
     @Actor() actor: AuthenticatedActor,
@@ -191,6 +199,7 @@ export class AdminController {
     return { ok: true };
   }
 
+  @PlatformOnly(false) // A seller lists their own sessions here.
   @Get('auth/sessions')
   async sessions(@Actor() actor: AuthenticatedActor) {
     const id = actor.adminUserId ?? actor.sellerUserId;

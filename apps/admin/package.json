@@ -8,7 +8,8 @@
     "start": "next start --port ${ADMIN_PORT:-3001}",
     "typecheck": "tsc --noEmit",
     "test:ui": "node test/e2e/ui.mjs",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@fashion/core": "workspace:*",
@@ -22,6 +23,7 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

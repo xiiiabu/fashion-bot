@@ -700,7 +700,9 @@ try {
     const stockDialog = await sellerSession.page.locator('[role="dialog"]').innerText().catch(() => '');
     check(
       'stock separates on-hand, reserved and available (INV-004)',
-      stockDialog.includes('В наличии') && stockDialog.includes('Доступно') && stockDialog.includes('Резерв'),
+      /в наличии/i.test(stockDialog) &&
+        /доступно/i.test(stockDialog) &&
+        /резерв/i.test(stockDialog),
     );
     await shot(sellerSession.page, 'seller-stock');
     await sellerSession.page.keyboard.press('Escape');
@@ -716,12 +718,20 @@ try {
   );
 
   // A seller must not be able to reach a platform screen by URL.
+  // Tenant isolation: a seller holds ledger:read for their own cabinet, so the
+  // platform endpoint has to refuse them on the surface, not the permission.
   await open(sellerSession.page, '/finance/ledger');
-  const sellerOnAdminScreen = await sellerSession.page.locator('tbody tr').count();
+  const leakedCells = await sellerSession.page.locator('tbody td.t-money').count();
+  const platformLedgerText = await sellerSession.page.locator('main').innerText();
   check(
     'a seller reaching a platform screen by URL gets no platform data',
-    sellerOnAdminScreen === 0,
-    `${sellerOnAdminScreen} строк`,
+    leakedCells === 0,
+    `${leakedCells} денежных ячеек`,
+  );
+  check(
+    'and is told why rather than shown an empty table',
+    /нет доступа|недостаточно прав|0 записей|ошибка/i.test(platformLedgerText),
+    platformLedgerText.replace(/\s+/g, ' ').slice(0, 80),
   );
   await shot(sellerSession.page, 'seller-denied-admin');
 

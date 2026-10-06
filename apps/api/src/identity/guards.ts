@@ -31,6 +31,7 @@ export const PUBLIC_KEY = 'isPublic';
 export const OPTIONAL_AUTH_KEY = 'optionalAuth';
 export const PERMISSIONS_KEY = 'requiredPermissions';
 export const ANY_PERMISSION_KEY = 'requiredAnyPermission';
+export const PLATFORM_ONLY_KEY = 'platformOnly';
 export const REQUIRE_MFA_KEY = 'requireMfa';
 export const ADMIN_SURFACE_KEY = 'adminSurface';
 
@@ -53,6 +54,25 @@ export const OptionalAuth = () => SetMetadata(OPTIONAL_AUTH_KEY, true);
 
 export const RequirePermissions = (...permissions: Permission[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);
+
+/**
+ * Restricts a route, or a whole controller, to platform staff.
+ *
+ * The permission model is shared between the panel and the seller cabinet,
+ * which is right — but it means a seller user legitimately holds ledger:read,
+ * order:read and product:read for their own cabinet. Guarding a platform
+ * endpoint on the permission alone therefore lets a seller read every other
+ * seller's data by calling the admin URL directly, which is what happened: a
+ * seller token returned all 254 ledger entries, every order, every product and
+ * the list of platform administrators.
+ *
+ * The seller endpoints scope by tenant through resolveTenant; the platform
+ * endpoints have no such notion because they assume an admin caller. This
+ * makes that assumption explicit and enforced. Pass `false` on the handful of
+ * routes both surfaces share — sign-out, /me, password, sessions.
+ */
+export const PlatformOnly = (platformOnly = true) =>
+  SetMetadata(PLATFORM_ONLY_KEY, platformOnly);
 
 /**
  * Holding *any one* of these is enough.
@@ -156,6 +176,19 @@ export class AdminAuthGuard implements CanActivate {
 
     const principal = await this.adminAuth.resolveToken(token);
     if (!principal) throw AppError.unauthenticated('Session is no longer valid');
+
+    // Tenant isolation: a platform endpoint is for platform staff, whatever
+    // permissions a seller's role happens to share with them.
+    const platformOnly = this.reflector.getAllAndOverride<boolean>(PLATFORM_ONLY_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (platformOnly && principal.kind !== 'admin') {
+      throw AppError.forbidden('This endpoint is for platform staff', {
+        reason: 'PLATFORM_ONLY',
+        surface: principal.kind,
+      });
+    }
 
     const roles = principal.roles as Role[];
     const permissions = permissionsForRoles(roles);

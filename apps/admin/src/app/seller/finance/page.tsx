@@ -33,42 +33,12 @@ import {
   Table,
   Tabs,
   cx,
-  type Tone,
 } from '@/components/ui';
 import { FilterSelect, ListBody, ListFooter, useList } from '@/components/data-screen';
+import { sellerEventLabel, sellerEventTone, sellerMemo } from '@/lib/ledger-labels';
 import { payoutLabel, payoutTone } from '@/lib/status';
 
 const PAGE = 50;
-
-/** What each ledger event means to a seller, in their own terms. */
-const EVENT_LABELS: Record<string, string> = {
-  SALE_GROSS: 'Продажа',
-  COMMISSION: 'Комиссия платформы',
-  COMMISSION_REVERSAL: 'Возврат комиссии',
-  SELLER_PAYABLE: 'Начислено к выплате',
-  SELLER_PAYABLE_REVERSAL: 'Снято при возврате',
-  REFUND: 'Возврат покупателю',
-  PAYOUT: 'Выплата',
-  PAYOUT_REVERSAL: 'Отмена выплаты',
-  ADJUSTMENT: 'Корректировка',
-  DISCOUNT_SELLER_FUNDED: 'Скидка за ваш счёт',
-  DISCOUNT_PLATFORM_FUNDED: 'Скидка за счёт платформы',
-  PSP_FEE: 'Эквайринг',
-  RESERVE_HOLD: 'Резерв удержан',
-  RESERVE_RELEASE: 'Резерв освобождён',
-};
-
-function eventLabel(event: string): string {
-  return EVENT_LABELS[event] ?? event;
-}
-
-function eventTone(event: string): Tone {
-  if (event.includes('REVERSAL') || event.includes('REFUND')) return 'warn';
-  if (event.includes('COMMISSION') || event.includes('FEE')) return 'accent';
-  if (event.includes('PAYOUT')) return 'info';
-  if (event.includes('ADJUSTMENT')) return 'danger';
-  return 'neutral';
-}
 
 type Pane = 'balance' | 'ledger' | 'payouts';
 
@@ -242,7 +212,7 @@ function Ledger() {
   );
 
   const eventOptions = useMemo(
-    () => LEDGER_EVENTS.map((value) => ({ value, label: eventLabel(value) })),
+    () => LEDGER_EVENTS.map((value) => ({ value, label: sellerEventLabel(value) })),
     [],
   );
 
@@ -261,7 +231,7 @@ function Ledger() {
               <th>Операция</th>
               <th className="num">Сумма</th>
               <th>Заказ</th>
-              <th>Примечание</th>
+              <th>Документ</th>
             </tr>
           </thead>
           <tbody>
@@ -273,7 +243,7 @@ function Ledger() {
                     <tr key={row.id}>
                       <td className="num t-num text-[var(--fg-faint)]">{row.sequence}</td>
                       <td>
-                        <Pill tone={eventTone(row.event)}>{eventLabel(row.event)}</Pill>
+                        <Pill tone={sellerEventTone(row.event)}>{sellerEventLabel(row.event)}</Pill>
                       </td>
                       <td
                         className={cx(
@@ -285,7 +255,7 @@ function Ledger() {
                       </td>
                       <td>{row.orderId ? <CopyId value={row.orderId} /> : '—'}</td>
                       <td className="max-w-[280px] truncate text-[var(--fg-muted)]" title={row.memo ?? ''}>
-                        {row.memo ?? '—'}
+                        {sellerMemo(row.memo) ?? '—'}
                       </td>
                     </tr>
                   );

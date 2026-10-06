@@ -359,15 +359,27 @@ function PublishCheck({ product, onClose }: { product: ProductRow; onClose: () =
 
 /* ── Stock (INV-004) ────────────────────────────────────────────────────── */
 
-interface SkuRow {
-  id: string;
-  sizeLabel?: string;
-  colorName?: string;
+/**
+ * The stock numbers live on a nested inventory record, not on the SKU — the
+ * first pass read them off the SKU and showed zero everywhere, which for a
+ * seller checking why something is out of stock is worse than showing nothing.
+ */
+interface SkuInventory {
   onHand?: number;
   reserved?: number;
   safetyStock?: number;
   lowStockThreshold?: number;
-  externalId?: string | null;
+  location?: string | null;
+  lastFeedAt?: string | null;
+}
+
+interface SkuRow {
+  id: string;
+  sizeLabel?: string;
+  colorName?: string;
+  sellerSku?: string | null;
+  barcode?: string | null;
+  inventory?: SkuInventory | null;
   [extra: string]: unknown;
 }
 
@@ -438,9 +450,9 @@ function StockModal({
                 </tr>
               ) : (
                 skus.map((sku) => {
-                  const onHand = sku.onHand ?? 0;
-                  const reserved = sku.reserved ?? 0;
-                  const safety = sku.safetyStock ?? 0;
+                  const onHand = sku.inventory?.onHand ?? 0;
+                  const reserved = sku.inventory?.reserved ?? 0;
+                  const safety = sku.inventory?.safetyStock ?? 0;
                   const available = Math.max(0, onHand - reserved - safety);
                   return (
                     <tr key={sku.id}>
@@ -508,11 +520,11 @@ function StockForm({
   onClose: () => void;
   onSave: (body: { onHand?: number; safetyStock?: number; lowStockThreshold?: number }) => void;
 }) {
-  const [onHand, setOnHand] = useState(String(sku.onHand ?? 0));
-  const [safety, setSafety] = useState(String(sku.safetyStock ?? 0));
-  const [threshold, setThreshold] = useState(String(sku.lowStockThreshold ?? 0));
+  const [onHand, setOnHand] = useState(String(sku.inventory?.onHand ?? 0));
+  const [safety, setSafety] = useState(String(sku.inventory?.safetyStock ?? 0));
+  const [threshold, setThreshold] = useState(String(sku.inventory?.lowStockThreshold ?? 0));
 
-  const reserved = sku.reserved ?? 0;
+  const reserved = sku.inventory?.reserved ?? 0;
   const parsed = {
     onHand: Number(onHand),
     safetyStock: Number(safety),
@@ -574,10 +586,13 @@ function StockForm({
         </div>
       )}
 
-      {sku.externalId && (
-        <p className="mt-3 text-[11.5px] text-[var(--fg-faint)]">
-          Артикул: <span className="t-mono">{sku.externalId}</span>. Если остатки приходят из вашей
-          системы, менять их здесь вручную смысла нет — следующая синхронизация перезапишет.
+      {sku.sellerSku && (
+        <p className="mt-3 text-[11.5px] leading-relaxed text-[var(--fg-faint)]">
+          Артикул: <span className="t-mono">{sku.sellerSku}</span>
+          {sku.inventory?.location ? ` · склад ${sku.inventory.location}` : ''}
+          {sku.inventory?.lastFeedAt
+            ? `. Остатки последний раз приходили из вашей системы ${dateTime(sku.inventory.lastFeedAt)} — ручная правка продержится до следующей синхронизации.`
+            : ''}
         </p>
       )}
     </Modal>
