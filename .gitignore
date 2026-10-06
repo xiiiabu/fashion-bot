@@ -31,3 +31,8 @@ packages/core/dist/
 # during the seed, so a fresh clone produces the same files.
 apps/api/storage/media/
 .api.pid
+.miniapp.pid
+.miniapp.log
+
+# Next generates this
+apps/miniapp/next-env.d.ts

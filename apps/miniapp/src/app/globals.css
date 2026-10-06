@@ -1,0 +1,375 @@
+@import 'tailwindcss';
+
+/*
+ * Design language — an editorial boutique, not a marketplace grid.
+ *
+ * The reference points are a printed lookbook and the quieter end of luxury
+ * retail: generous whitespace, a serif display face carrying the voice, one
+ * warm accent borrowed from Uzbek ceramics (the clay tone), and absolutely no
+ * decorative gradients or drop shadows pretending to be depth. Hierarchy comes
+ * from type scale and space, which is what survives a 360px phone screen.
+ *
+ * Telegram hands us a theme (light/dark and the user's accent). We follow its
+ * light/dark decision, and deliberately keep our own palette for everything
+ * else: a marketplace showing clothes cannot let the surrounding chat theme
+ * recolour a garment's background, or the colour the shopper sees is not the
+ * colour of the product.
+ */
+
+@theme {
+  /* Neutrals: warm, paper-like, never pure grey. */
+  --color-ink: #16130f;
+  --color-ink-soft: #3b342c;
+  --color-ink-muted: #6f655a;
+  --color-ink-faint: #a0968a;
+  --color-line: #e5ded2;
+  --color-line-soft: #efe9df;
+  --color-bone: #faf7f1;
+  --color-bone-deep: #f3eee4;
+  --color-paper: #ffffff;
+
+  /* The single accent. Uzbek clay/terracotta, muted enough to sit under type. */
+  --color-clay: #b05a35;
+  --color-clay-deep: #8f4526;
+  --color-clay-soft: #f6ebe3;
+
+  /* Semantic, used sparingly and never as decoration. */
+  --color-success: #2f6b4f;
+  --color-success-soft: #e8f1eb;
+  --color-warn: #8a6314;
+  --color-warn-soft: #fbf2dd;
+  --color-danger: #9a3131;
+  --color-danger-soft: #fbeaea;
+  --color-info: #2e5d86;
+  --color-info-soft: #e9f0f7;
+
+  --font-display: 'Playfair Display', 'Didot', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-xl: 22px;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  --bg: var(--color-bone);
+  --bg-raised: var(--color-paper);
+  --bg-sunken: var(--color-bone-deep);
+  --fg: var(--color-ink);
+  --fg-soft: var(--color-ink-soft);
+  --fg-muted: var(--color-ink-muted);
+  --fg-faint: var(--color-ink-faint);
+  --line: var(--color-line);
+  --line-soft: var(--color-line-soft);
+  --accent: var(--color-clay);
+  --accent-deep: var(--color-clay-deep);
+  --accent-soft: var(--color-clay-soft);
+  --on-accent: #fffaf6;
+  --scrim: rgb(22 19 15 / 0.42);
+
+  /* Telegram viewport metrics, kept as variables so a layout can reserve the
+   * real visible height rather than 100vh, which the webview lies about. */
+  --tg-viewport-height: 100vh;
+  --tg-viewport-stable-height: 100vh;
+  --safe-top: 0px;
+  --safe-bottom: 0px;
+
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  /* Dark is a gallery at night: near-black warm ink, raised surfaces barely
+   * lighter, and the accent lifted so it still reads on a dark field. */
+  --bg: #121010;
+  --bg-raised: #1c1918;
+  --bg-sunken: #0c0b0a;
+  --fg: #f4efe8;
+  --fg-soft: #cfc6ba;
+  --fg-muted: #9e948a;
+  --fg-faint: #6e665e;
+  --line: #322d29;
+  --line-soft: #262220;
+  --accent: #d9825a;
+  --accent-deep: #c06a44;
+  --accent-soft: #2a1d16;
+  --on-accent: #17110d;
+  --scrim: rgb(0 0 0 / 0.6);
+
+  --color-success-soft: #16261d;
+  --color-success: #7cc49c;
+  --color-warn-soft: #2a2213;
+  --color-warn: #ddb865;
+  --color-danger-soft: #2b1818;
+  --color-danger: #e08a8a;
+  --color-info-soft: #15212c;
+  --color-info: #8fb8dc;
+
+  color-scheme: dark;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  background: var(--bg);
+  /* Telegram's webview bounces; a fixed root stops the whole page rubber-banding
+   * over the header while an inner scroller handles the content. */
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: -0.006em;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+/* Type scale. Display sizes are the editorial voice; UI sizes stay sans. */
+.t-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.021em;
+  line-height: 1.04;
+}
+
+.t-hero {
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 11vw, 3.4rem);
+  font-weight: 400;
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+}
+
+.t-title {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1.1;
+  letter-spacing: -0.022em;
+}
+
+.t-section {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1.15;
+  letter-spacing: -0.018em;
+}
+
+.t-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.t-label {
+  font-size: 0.75rem;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+}
+
+.t-price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 560;
+  letter-spacing: -0.012em;
+}
+
+.t-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A hairline that stays one physical pixel on a 3x screen. */
+.hairline {
+  border-color: var(--line);
+}
+
+@media (min-resolution: 2dppx) {
+  .hairline-t {
+    background-image: linear-gradient(to bottom, var(--line) 50%, transparent 50%);
+    background-size: 100% 1px;
+    background-repeat: no-repeat;
+  }
+}
+
+/* Horizontal rails: edge-to-edge, snapped, with the scrollbar hidden because
+ * a Telegram webview never shows a usable one anyway. */
+.rail {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-inline: 1rem;
+  scroll-padding-inline-start: 1rem;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+.rail > * {
+  scroll-snap-align: start;
+  flex: 0 0 auto;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Product imagery sits on a tinted field so a white garment still has an edge. */
+.img-field {
+  background: var(--bg-sunken);
+  position: relative;
+  overflow: hidden;
+}
+
+.img-field > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Press feedback. Telegram users expect the whole tile to answer a touch. */
+.pressable {
+  transition:
+    transform 0.18s var(--ease-out-soft),
+    opacity 0.18s var(--ease-out-soft);
+}
+
+.pressable:active {
+  transform: scale(0.978);
+  opacity: 0.9;
+}
+
+/* Skeletons shimmer once; a looping shimmer reads as broken on slow networks. */
+@keyframes sheen {
+  0% {
+    background-position: -140% 0;
+  }
+  100% {
+    background-position: 240% 0;
+  }
+}
+
+.skeleton {
+  background:
+    linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in oklab, var(--fg) 7%, transparent) 50%,
+        transparent 100%
+      )
+      var(--bg-sunken);
+  background-size: 220% 100%;
+  animation: sheen 1.25s var(--ease-out-soft) infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.34s var(--ease-out-soft) both;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade {
+  animation: fade 0.24s var(--ease-out-soft) both;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.sheet-up {
+  animation: sheet-up 0.3s var(--ease-out-soft) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .fade,
+  .sheet-up,
+  .skeleton {
+    animation: none;
+  }
+
+  .pressable:active {
+    transform: none;
+  }
+}
+
+/* Focus rings only for keyboard users; a touch should not paint one. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Native inputs, de-chromed so they inherit the type system. */
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input[type='number'] {
+  appearance: textfield;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* iOS zooms the page when a focused input is under 16px. */
+@supports (-webkit-touch-callout: none) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}

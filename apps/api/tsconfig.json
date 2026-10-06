@@ -6,7 +6,17 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "baseUrl": ".",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      // NestJS emits CommonJS, so this app uses classic Node resolution, which
+      // predates package `exports` and cannot see @fashion/core's "./server"
+      // subpath. Node itself resolves it correctly at runtime; this mapping is
+      // only so tsc can find the types. The server entry point exists because
+      // initData verification needs node:crypto and must stay out of the
+      // browser bundles the Mini App and the admin panel build.
+      "@fashion/core/server": ["../../packages/core/dist/server.d.ts"],
+      "@fashion/core": ["../../packages/core/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

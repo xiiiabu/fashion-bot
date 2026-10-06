@@ -8,6 +8,7 @@ export * from './outfit.js';
 export * from './intent.js';
 export * from './translit.js';
 export * from './i18n.js';
-export * from './telegram.js';
+export * from './deeplink.js';
 export * from './types.js';
 export * from './rbac.js';
+export * from './analytics.js';

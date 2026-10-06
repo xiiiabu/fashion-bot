@@ -5,7 +5,12 @@
 
 import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { type Locale, encodeDeepLink } from '@fashion/core';
+import {
+  ANALYTICS_EVENTS,
+  ANALYTICS_TAXONOMY_VERSION,
+  type Locale,
+  encodeDeepLink,
+} from '@fashion/core';
 import { SupportService } from './support.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AnalyticsService } from '../analytics/analytics.service';
@@ -134,7 +139,7 @@ export class SupportController {
   @Get('events/taxonomy')
   taxonomy() {
     // ANL-001: the taxonomy is documented and machine-readable.
-    return { events: Object.keys(EVENT_NAMES), version: 1 };
+    return { events: [...ANALYTICS_EVENTS], version: ANALYTICS_TAXONOMY_VERSION };
   }
 
   // ───────────────────────────────── bot service channel (TG-004/NTF-001)
@@ -254,30 +259,4 @@ export class SupportController {
   }
 }
 
-/** Kept in sync with AnalyticsService.EVENT_TAXONOMY by the taxonomy test. */
-const EVENT_NAMES = {
-  app_open: 1,
-  screen_view: 1,
-  product_view: 1,
-  product_card_click: 1,
-  search_performed: 1,
-  filter_applied: 1,
-  size_selected: 1,
-  size_chart_opened: 1,
-  fit_recommendation_shown: 1,
-  add_to_cart: 1,
-  add_whole_look: 1,
-  remove_from_cart: 1,
-  wishlist_add: 1,
-  checkout_started: 1,
-  quote_created: 1,
-  payment_initiated: 1,
-  order_paid: 1,
-  ai_session_started: 1,
-  ai_look_generated: 1,
-  ai_item_replaced: 1,
-  ai_look_added_to_cart: 1,
-  return_requested: 1,
-  fit_feedback_submitted: 1,
-  consent_updated: 1,
-} as const;
+

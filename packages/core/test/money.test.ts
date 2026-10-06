@@ -77,7 +77,27 @@ describe('money primitives', () => {
   it('formats UZS without decimals and with grouped thousands', () => {
     const formatted = formatMoney(uzs(1_650_000));
     assert.match(formatted, /1.650.000/u);
-    assert.match(formatted, /so'm|so‘m/u);
+    // Tiyin are never shown: nothing in Uzbekistan is priced in fractions of a
+    // soum, and showing ",00" on every price is noise.
+    assert.ok(!formatted.includes(','));
+  });
+
+  it('writes the soum the way each language writes it (USR-001)', () => {
+    const amount = uzs(1_650_000);
+    // A Russian price saying "so'm" is as wrong as an Uzbek one saying "сум".
+    assert.match(formatMoney(amount, 'ru'), /сум/u);
+    assert.match(formatMoney(amount, 'uz'), /so'm|so‘m/u);
+    assert.match(formatMoney(amount, 'en'), /UZS/u);
+    // A full BCP-47 tag resolves to the same language.
+    assert.equal(formatMoney(amount, 'ru-UZ'), formatMoney(amount, 'ru'));
+    // An unknown locale falls back rather than printing a key.
+    assert.match(formatMoney(amount, 'de'), /so'm|сум|UZS/u);
+  });
+
+  it('keeps the Western symbols ahead of the number in every locale', () => {
+    for (const locale of ['ru', 'uz', 'en']) {
+      assert.match(formatMoney(fromMajor('99.50', 'USD'), locale), /^\$99/u);
+    }
   });
 });
 

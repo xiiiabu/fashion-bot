@@ -16,8 +16,8 @@ import {
   decodeDeepLink,
   deepLinkToRoute,
   resolveLocale,
-  verifyInitData,
 } from '@fashion/core';
+import { verifyInitData } from '@fashion/core/server';
 import { PrismaService } from '../common/prisma.service';
 import { loadConfig } from '../common/config';
 import { AppError } from '../common/errors';

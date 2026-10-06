@@ -48,7 +48,14 @@ export interface NarrativeRequest {
   readonly brief: string;
   /** Facts only — titles, brands, colours. No ids, no prices. */
   readonly items: Array<Record<string, string>>;
-  readonly reasonKeys: string[];
+  /**
+   * Reason keys with their interpolation parameters. They used to be bare
+   * strings, and `rulesNarrative` then translated them without params — so a
+   * template like 'Палитра: {colors}.' reached the shopper with the brace
+   * intact. Carrying the params through is the fix; `sentencesFor` also drops
+   * anything still holding a placeholder so a future key cannot leak one.
+   */
+  readonly reasonKeys: Array<{ key: string; params?: Record<string, string> }>;
   readonly withinBudget: boolean;
 }
 
@@ -146,7 +153,7 @@ export class LlmService {
           `${index + 1}. ${item.slot}: ${item.title} by ${item.brand}, ${item.color}, ${item.silhouette}, styles: ${item.styles}`,
       ),
       '',
-      `Why the rules picked them: ${request.reasonKeys.join(', ')}`,
+      `Why the rules picked them: ${request.reasonKeys.map((entry) => entry.key).join(', ')}`,
       request.withinBudget ? 'The set is within the stated budget.' : 'The set is over budget.',
     ].join('\n');
 
@@ -169,9 +176,7 @@ export class LlmService {
 
   /** The deterministic explanation. This is the product's real baseline. */
   rulesNarrative(request: NarrativeRequest): NarrativeResult {
-    const sentences = request.reasonKeys
-      .map((key) => translate(request.locale, key))
-      .filter((sentence) => sentence && !sentence.startsWith('ai.'));
+    const sentences = sentencesFor(request.locale, request.reasonKeys);
     return {
       text: sentences.join(' '),
       model: null,
@@ -272,4 +277,20 @@ export function sanitizeNarrative(text: string): string | null {
   // Keep it to a paragraph; a runaway response is a signal, not content.
   if (cleaned.length > 900) cleaned = `${cleaned.slice(0, 880).trimEnd()}…`;
   return cleaned.length >= 10 ? cleaned : null;
+}
+
+/**
+ * Translates reason keys into display sentences, dropping anything that is not
+ * a real sentence: an untranslated key (still prefixed 'ai.') and anything left
+ * holding an unsubstituted {placeholder}. AI-006 asks for an explanation the
+ * shopper can read; a brace is not one, and showing a broken template is worse
+ * than showing one sentence fewer.
+ */
+function sentencesFor(
+  locale: Locale,
+  keys: Array<{ key: string; params?: Record<string, string> }>,
+): string[] {
+  return keys
+    .map((entry) => translate(locale, entry.key, entry.params))
+    .filter((sentence) => Boolean(sentence) && !sentence.startsWith('ai.') && !/\{\w+\}/.test(sentence));
 }

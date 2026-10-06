@@ -33,6 +33,26 @@ export const CURRENCIES: Record<CurrencyCode, CurrencyMeta> = {
 
 export const DEFAULT_CURRENCY: CurrencyCode = 'UZS';
 
+/**
+ * The soum is written differently in each of our languages, so the symbol
+ * follows the reader rather than the currency: a Russian price saying "so'm"
+ * is as wrong as an Uzbek one saying "сум". `CURRENCIES[].symbol` stays as the
+ * neutral default for anything that has no locale to hand.
+ *
+ * Only UZS varies; $, € and ₽ are the same glyph everywhere.
+ */
+const LOCALIZED_SYMBOLS: Record<string, Partial<Record<CurrencyCode, string>>> = {
+  ru: { UZS: 'сум' },
+  uz: { UZS: "so'm" },
+  en: { UZS: 'UZS' },
+};
+
+/** The currency symbol as the given locale writes it. */
+export function currencySymbol(currency: CurrencyCode, locale?: string): string {
+  const language = (locale ?? '').slice(0, 2).toLowerCase();
+  return LOCALIZED_SYMBOLS[language]?.[currency] ?? CURRENCIES[currency].symbol;
+}
+
 export class MoneyError extends Error {}
 
 export function money(amount: bigint | number | string, currency: CurrencyCode = DEFAULT_CURRENCY): Money {
@@ -250,9 +270,14 @@ export function splitByWeights(value: Money, weights: Array<bigint | number>): M
 }
 
 /** Format for UI. Uzbek/Russian locales group with a narrow no-break space. */
+/**
+ * Formats an amount for display. `locale` selects how the currency is written
+ * (see currencySymbol); the digit grouping is a plain space in every locale we
+ * ship, which is correct for ru, uz and en-GB alike.
+ */
 export function formatMoney(
   value: Money,
-  locale: string = 'ru-UZ',
+  locale: string = 'ru',
   options: { withSymbol?: boolean; compact?: boolean } = {},
 ): string {
   const { withSymbol = true, compact = false } = options;
@@ -280,7 +305,9 @@ export function formatMoney(
   }
   const signed = negative ? `−${numeric}` : numeric;
   if (!withSymbol) return signed;
-  return value.currency === 'UZS' ? `${signed} ${meta.symbol}` : `${meta.symbol}${signed}`;
+  const symbol = currencySymbol(value.currency, locale);
+  // The soum follows the number; the Western symbols precede it.
+  return value.currency === 'UZS' ? `${signed} ${symbol}` : `${symbol}${signed}`;
 }
 
 function groupDigits(digits: string): string {

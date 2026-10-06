@@ -10,6 +10,7 @@
  * Hard rules reject a combination outright; soft rules move a score (AI-004).
  */
 
+import { DEFAULT_LOCALE, type Locale, translate } from './i18n.js';
 import { type Money, add, compare, money, sum, toBigInt, zero } from './money.js';
 import {
   type ColorFamily,
@@ -615,6 +616,14 @@ function clamp01(value: number): number {
 export function explainOutfit(
   outfit: AssembledOutfit,
   intent: StyleIntent,
+  /**
+   * Locale for the names interpolated into the sentences. Colour families and
+   * style tags are machine codes ('NAVY', 'old_money') and putting them into a
+   * Russian sentence produced "Палитра: brown + navy" — correct data, broken
+   * copy. The sentence templates themselves are translated by the caller; only
+   * the substituted names need resolving here, where the codes are.
+   */
+  locale: Locale = DEFAULT_LOCALE,
 ): { keys: Array<{ key: string; params?: Record<string, string> }>; topReasons: SoftRuleCode[] } {
   const byCode = new Map<SoftRuleCode, number>();
   for (const hit of [...outfit.softHits, ...outfit.items.flatMap((item) => item.hits)]) {
@@ -628,10 +637,21 @@ export function explainOutfit(
 
   const keys: Array<{ key: string; params?: Record<string, string> }> = [];
   if (intent.styles.length > 0) {
-    keys.push({ key: 'ai.explain.style', params: { styles: intent.styles.join(', ') } });
+    keys.push({
+      key: 'ai.explain.style',
+      params: { styles: intent.styles.map((tag) => translate(locale, `style.${tag}`)).join(', ') },
+    });
   }
   if (outfit.dominantColors.length > 0) {
-    keys.push({ key: 'ai.explain.palette', params: { colors: outfit.dominantColors.slice(0, 2).join(' + ') } });
+    keys.push({
+      key: 'ai.explain.palette',
+      params: {
+        colors: outfit.dominantColors
+          .slice(0, 2)
+          .map((family) => translate(locale, `color.${family}`))
+          .join(' + '),
+      },
+    });
   }
   if (outfit.formalitySpread <= 1) keys.push({ key: 'ai.explain.coherent_formality' });
   if (intent.budget) {

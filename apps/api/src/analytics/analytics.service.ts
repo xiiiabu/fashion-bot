@@ -12,7 +12,19 @@
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { type Money, add, money, subtract, toBigInt, zero } from '@fashion/core';
+import {
+  ANALYTICS_EVENTS,
+  ANALYTICS_TAXONOMY_VERSION,
+  type AnalyticsEventName,
+  FORBIDDEN_EVENT_PROPERTIES,
+  type Money,
+  add,
+  isAnalyticsEvent,
+  money,
+  subtract,
+  toBigInt,
+  zero,
+} from '@fashion/core';
 import { PrismaService } from '../common/prisma.service';
 import { sha256 } from '../common/crypto';
 import { toMoney } from '../common/money.util';
@@ -20,34 +32,15 @@ import { LedgerService } from '../finance/ledger.service';
 import { logger } from '../common/logger';
 
 /** ANL-001: the event names the clients are allowed to send. */
-export const EVENT_TAXONOMY = {
-  app_open: 1,
-  screen_view: 1,
-  product_view: 1,
-  product_card_click: 1,
-  search_performed: 1,
-  filter_applied: 1,
-  size_selected: 1,
-  size_chart_opened: 1,
-  fit_recommendation_shown: 1,
-  add_to_cart: 1,
-  add_whole_look: 1,
-  remove_from_cart: 1,
-  wishlist_add: 1,
-  checkout_started: 1,
-  quote_created: 1,
-  payment_initiated: 1,
-  order_paid: 1,
-  ai_session_started: 1,
-  ai_look_generated: 1,
-  ai_item_replaced: 1,
-  ai_look_added_to_cart: 1,
-  return_requested: 1,
-  fit_feedback_submitted: 1,
-  consent_updated: 1,
-} as const;
+/**
+ * ANL-001: the taxonomy now lives in @fashion/core, so the Mini App, the bot
+ * and the admin panel type their emitters against the same list rather than
+ * each keeping a copy in step by hand. Re-exported here because this service
+ * is where the rest of the API reaches for it.
+ */
+export const EVENT_TAXONOMY = ANALYTICS_EVENTS;
 
-export type EventName = keyof typeof EVENT_TAXONOMY;
+export type EventName = AnalyticsEventName;
 
 export interface TrackInput {
   readonly name: string;
@@ -60,24 +53,17 @@ export interface TrackInput {
 }
 
 /** ANL-004: property keys that must never reach analytics. */
-const FORBIDDEN_PROPERTIES = new Set([
-  'phone',
-  'email',
-  'address',
-  'street',
-  'building',
-  'apartment',
-  'recipientName',
-  'firstName',
-  'lastName',
-  'measurements',
-  'heightMm',
-  'weightGrams',
-  'lat',
-  'lng',
-  'cardMask',
-  'pan',
-]);
+/**
+ * ANL-004. The shared list is what every client is told to avoid; these are the
+ * extras only the server ever sees, so they do not belong in a browser bundle.
+ * Compared case-insensitively, because a client may send either camelCase or
+ * snake_case.
+ */
+const FORBIDDEN_PROPERTIES = new Set(
+  [...FORBIDDEN_EVENT_PROPERTIES, 'cardMask', 'ipHash', 'refreshToken', 'accessToken'].map((key) =>
+    key.toLowerCase(),
+  ),
+);
 
 @Injectable()
 export class AnalyticsService {
@@ -88,7 +74,7 @@ export class AnalyticsService {
 
   /** ANL-001/ANL-004: validate, pseudonymise, store. */
   async track(input: TrackInput): Promise<{ accepted: boolean; reason?: string }> {
-    if (!(input.name in EVENT_TAXONOMY)) {
+    if (!isAnalyticsEvent(input.name)) {
       // An undocumented event is dropped rather than stored: the taxonomy is
       // the contract, and silent drift is what ANL-001 exists to prevent.
       logger.debug({ name: input.name }, 'analytics event outside the taxonomy was dropped');
@@ -100,7 +86,7 @@ export class AnalyticsService {
     await this.prisma.analyticsEvent.create({
       data: {
         name: input.name,
-        version: EVENT_TAXONOMY[input.name as EventName],
+        version: ANALYTICS_TAXONOMY_VERSION,
         anonymousId: input.anonymousId?.slice(0, 64) ?? null,
         // ANL-004: a stable pseudonym, not the user id.
         userRef: input.userId ? pseudonymize(input.userId) : null,
@@ -629,7 +615,7 @@ function pseudonymize(userId: string): string {
 function sanitizeProperties(properties: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
-    if (FORBIDDEN_PROPERTIES.has(key)) continue;
+    if (FORBIDDEN_PROPERTIES.has(key.toLowerCase())) continue;
     if (typeof value === 'string' && value.length > 300) {
       out[key] = value.slice(0, 300);
       continue;

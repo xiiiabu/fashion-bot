@@ -115,10 +115,15 @@ async function main(): Promise<void> {
     `status ${badAuth.status}, code ${((badAuth.body as Json).error as Json)?.code}`,
   );
 
+  // A fresh shopper per run. Reusing one telegramId made the suite share a
+  // user across runs, so per-user rate limits (the data export allows 5 an
+  // hour, §15.2) started failing on the fifth run of the day rather than on a
+  // real defect. Test isolation is the fix; weakening the limiter is not.
+  const telegramId = 777_000_000 + (Date.now() % 900_000);
   const auth = await api.request<{ accessToken: string; userId: string; isNewUser: boolean }>(
     'POST',
     '/auth/dev',
-    { token: 'none', body: { secret: DEV_SECRET, telegramId: 777000111, firstName: 'E2E', locale: 'ru' } },
+    { token: 'none', body: { secret: DEV_SECRET, telegramId, firstName: 'E2E', locale: 'ru' } },
   );
   if (!check('UAT-01b', 'Development sign-in yields one session', auth.status === 201 || auth.status === 200, `status ${auth.status}`)) {
     console.error('Cannot continue without a session.');

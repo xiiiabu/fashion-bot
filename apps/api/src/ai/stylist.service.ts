@@ -224,14 +224,14 @@ export class StylistService {
       ]),
     );
 
-    const explanation = explainOutfit(assembled, intent);
+    const explanation = explainOutfit(assembled, intent, request.locale);
 
     // AI-006: the deterministic reason always exists; the LLM only rewords it.
     const narrative = await this.llm.narrate({
       locale: request.locale,
       brief: intent.rawQuery || request.query,
       items: outfitFactsForLlm(assembled),
-      reasonKeys: explanation.keys.map((entry) => entry.key),
+      reasonKeys: explanation.keys,
       withinBudget: assembled.withinBudget,
     });
 
@@ -587,6 +587,14 @@ export class StylistService {
     return this.materialize(current, intent, { query: session.rawQuery, userId, locale }, template, Date.now());
   }
 
+  /**
+   * AI-005: the shopper's saved looks. Each row carries the item count and a
+   * few thumbnails, read out of the stored snapshot, so the history can be
+   * shown as the looks it represents rather than as a list of query strings.
+   *
+   * One extra query for the whole page: the snapshot holds the product ids, so
+   * the images are fetched in a single batch rather than per row.
+   */
   async history(userId: string, limit = 20) {
     const rows = await this.prisma.outfitSession.findMany({
       where: { userId },
@@ -601,17 +609,54 @@ export class StylistService {
         createdAt: true,
         addedToCartAt: true,
         replacements: true,
+        result: true,
       },
     });
-    return rows.map((row) => ({
-      id: row.id,
-      query: row.rawQuery,
-      total: row.totalMinor ? toMoney(row.totalMinor, row.currency) : null,
-      score: row.score,
-      createdAt: row.createdAt.toISOString(),
-      addedToCart: row.addedToCartAt != null,
-      replacements: row.replacements,
-    }));
+
+    const productIdsBySession = new Map<string, string[]>();
+    for (const row of rows) {
+      const snapshot = row.result as { items?: Array<{ productId?: string }> } | null;
+      const ids = (snapshot?.items ?? [])
+        .map((item) => item.productId)
+        .filter((id): id is string => typeof id === 'string');
+      productIdsBySession.set(row.id, ids);
+    }
+
+    const allIds = [...new Set([...productIdsBySession.values()].flat())];
+    const media =
+      allIds.length === 0
+        ? []
+        : await this.prisma.media.findMany({
+            where: { productId: { in: allIds }, kind: 'IMAGE' },
+            orderBy: [{ sortOrder: 'asc' }],
+            select: { productId: true, url: true },
+          });
+
+    // First image per product; sortOrder makes that the main one.
+    const thumbnailByProduct = new Map<string, string>();
+    for (const asset of media) {
+      if (asset.productId && !thumbnailByProduct.has(asset.productId)) {
+        thumbnailByProduct.set(asset.productId, asset.url);
+      }
+    }
+
+    return rows.map((row) => {
+      const ids = productIdsBySession.get(row.id) ?? [];
+      return {
+        id: row.id,
+        query: row.rawQuery,
+        total: row.totalMinor ? toMoney(row.totalMinor, row.currency) : null,
+        score: row.score,
+        createdAt: row.createdAt.toISOString(),
+        addedToCart: row.addedToCartAt != null,
+        replacements: row.replacements,
+        itemCount: ids.length,
+        thumbnails: ids
+          .map((id) => thumbnailByProduct.get(id))
+          .filter((url): url is string => Boolean(url))
+          .slice(0, 4),
+      };
+    });
   }
 
   /** Templates come from the DB when seeded (AI-003), else from core. */

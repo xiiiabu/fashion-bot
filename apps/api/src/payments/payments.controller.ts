@@ -154,8 +154,11 @@ export class PaymentsController {
     const provider = this.payments.providerByCode('mock');
     if (!provider) throw AppError.notFound('Page');
 
-    const display = formatMoney(money(amount || '0', (currency as 'UZS') || 'UZS'));
-    const copy = SANDBOX_COPY[(locale as Locale) ?? 'ru'] ?? SANDBOX_COPY.ru;
+    const resolved = (locale as Locale) ?? 'ru';
+    const copy = SANDBOX_COPY[resolved] ?? SANDBOX_COPY.ru;
+    // The amount is written the way the page's language writes it, so the
+    // sandbox page does not say "so'm" above Russian copy.
+    const display = formatMoney(money(amount || '0', (currency as 'UZS') || 'UZS'), resolved);
 
     response.setHeader('content-type', 'text/html; charset=utf-8');
     response.setHeader('cache-control', 'no-store');
